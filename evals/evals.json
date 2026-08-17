@@ -36,13 +36,14 @@
     {
       "id": 2,
       "name": "resume-and-migrate-legacy-note",
-      "prompt": "接着 evals/files/legacy-study-notes.md 继续读 evals/files/aggregation-paper.md。先把旧笔记里重复的学习进度块和优先级表迁移成单一的路线表，再从真正未完成的位置继续；不要重讲已经完成的 §1 和 §2。",
-      "expected_output": "Reads the old note and source, migrates state row-by-row into one route table with a precise restart boundary, preserves skip reasons, removes the obsolete mutable block, and resumes at §3.1 after the recorded data-flow description.",
+      "prompt": "接着 evals/files/legacy-study-notes.md 继续读 evals/files/aggregation-paper.md。先把旧笔记复制到本次运行的输出工作区，后续只修改该副本，不要改动 evals/files 下的规范夹具。然后把副本里重复的学习进度块和优先级表迁移成单一的路线表，再从真正未完成的位置继续；不要重讲已经完成的 §1 和 §2。",
+      "expected_output": "Creates a per-run working copy without modifying the canonical fixture, migrates state row-by-row into one route table with a precise restart boundary, preserves skip reasons, removes the obsolete mutable block, and resumes at §3.1 after the recorded data-flow description.",
       "files": [
         "evals/files/aggregation-paper.md",
         "evals/files/legacy-study-notes.md"
       ],
       "expectations": [
+        "Creates a per-run working copy and leaves evals/files/legacy-study-notes.md unchanged",
         "Preserves completed §1 and §2 rather than restarting",
         "Adds Progress to the existing priority table while preserving Depth and Why",
         "Records §3.1 as in progress with an exact restart boundary after the data-flow description",
