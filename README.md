@@ -41,17 +41,50 @@ cp -R /path/to/paper-study/skill/paper-study .claude/skills/
 
 Start a new Claude session after installation so the skill can be discovered.
 
-### Forthcoming v0.1.0 `.skill` archive
+### Install the v0.1.0 `.skill` archive
 
-The v0.1.0 release is forthcoming. Once the [release](https://github.com/GenLI3202/paper-study/releases/tag/v0.1.0) and its archive exist, download the `.skill` file and unzip it into either skill directory; there is no separate CLI installer.
+The [v0.1.0 release](https://github.com/GenLI3202/paper-study/releases/tag/v0.1.0) provides the package and its checksum. The following user-level installation uses private temporary directories, verifies both the checksum and the exact two-file archive manifest, and replaces an existing installation through a same-filesystem rename with rollback:
 
 ```bash
-DEST="$HOME/.claude/skills" # For a project install, use: DEST=".claude/skills"
-mkdir -p "$DEST"
+SKILLS_DIR="$HOME/.claude/skills" # For a project install, use: SKILLS_DIR=".claude/skills"
+mkdir -p "$SKILLS_DIR"
+DOWNLOAD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/paper-study-download.XXXXXX")"
+STAGE_DIR="$(mktemp -d "$SKILLS_DIR/.paper-study-install.XXXXXX")"
+BACKUP=""
+cleanup() {
+  rm -rf "$DOWNLOAD_DIR" "$STAGE_DIR"
+  if [ -n "$BACKUP" ] && [ -e "$BACKUP" ]; then rm -rf "$BACKUP"; fi
+}
+trap cleanup EXIT
+
 curl --fail --location \
   https://github.com/GenLI3202/paper-study/releases/download/v0.1.0/paper-study.skill \
-  --output /tmp/paper-study.skill
-unzip -q /tmp/paper-study.skill -d "$DEST"
+  --output "$DOWNLOAD_DIR/paper-study.skill"
+curl --fail --location \
+  https://github.com/GenLI3202/paper-study/releases/download/v0.1.0/SHA256SUMS \
+  --output "$DOWNLOAD_DIR/SHA256SUMS"
+( cd "$DOWNLOAD_DIR" && shasum -a 256 -c SHA256SUMS )
+
+EXPECTED_MANIFEST="$(printf '%s\n' \
+  'paper-study/SKILL.md' \
+  'paper-study/references/note-template.md')"
+ACTUAL_MANIFEST="$(unzip -Z1 "$DOWNLOAD_DIR/paper-study.skill" | grep -v '/$' | LC_ALL=C sort)"
+if [ "$ACTUAL_MANIFEST" != "$EXPECTED_MANIFEST" ]; then
+  printf 'Unexpected package contents; installation stopped.\n' >&2
+  exit 1
+fi
+unzip -q "$DOWNLOAD_DIR/paper-study.skill" -d "$STAGE_DIR"
+
+if [ -e "$SKILLS_DIR/paper-study" ]; then
+  BACKUP="$(mktemp -d "$SKILLS_DIR/.paper-study-backup.XXXXXX")"
+  rmdir "$BACKUP"
+  mv "$SKILLS_DIR/paper-study" "$BACKUP"
+fi
+if ! mv "$STAGE_DIR/paper-study" "$SKILLS_DIR/paper-study"; then
+  if [ -n "$BACKUP" ]; then mv "$BACKUP" "$SKILLS_DIR/paper-study"; fi
+  exit 1
+fi
+if [ -n "$BACKUP" ]; then rm -rf "$BACKUP"; BACKUP=""; fi
 ```
 
 ## Invocation examples
@@ -159,7 +192,6 @@ The skill contains no standalone uploader, but papers and notes read by Claude a
 - Requires readable source pages and filesystem write access. OCR or PDF extraction errors can still corrupt equations and locators, so verify notes against the source before citing them.
 - It teaches and documents papers; it does not reproduce experiments or validate scientific claims independently.
 - Persistent memory, Git, and optional integrations depend on the host environment. Git commits always require explicit consent.
-- The v0.1.0 release download will not work until that forthcoming release is published.
 
 ## License
 

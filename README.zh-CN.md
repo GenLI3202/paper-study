@@ -41,17 +41,50 @@ cp -R /path/to/paper-study/skill/paper-study .claude/skills/
 
 安装后请启动新的 Claude 会话，让环境重新发现该技能。
 
-### 即将发布的 v0.1.0 `.skill` 压缩包
+### 安装 v0.1.0 `.skill` 压缩包
 
-v0.1.0 尚待发布。[Release 页面](https://github.com/GenLI3202/paper-study/releases/tag/v0.1.0)及其压缩包上线后，可下载 `.skill` 文件并解压到任一技能目录；本项目没有另行提供 CLI 安装器。
+[v0.1.0 Release](https://github.com/GenLI3202/paper-study/releases/tag/v0.1.0) 提供技能包及其校验和。以下用户级安装使用私有临时目录，校验 SHA-256 与严格的双文件归档清单，并通过同一文件系统内的重命名替换已有版本；失败时会回滚：
 
 ```bash
-DEST="$HOME/.claude/skills" # 若安装到项目，请使用：DEST=".claude/skills"
-mkdir -p "$DEST"
+SKILLS_DIR="$HOME/.claude/skills" # 若安装到项目，请使用：SKILLS_DIR=".claude/skills"
+mkdir -p "$SKILLS_DIR"
+DOWNLOAD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/paper-study-download.XXXXXX")"
+STAGE_DIR="$(mktemp -d "$SKILLS_DIR/.paper-study-install.XXXXXX")"
+BACKUP=""
+cleanup() {
+  rm -rf "$DOWNLOAD_DIR" "$STAGE_DIR"
+  if [ -n "$BACKUP" ] && [ -e "$BACKUP" ]; then rm -rf "$BACKUP"; fi
+}
+trap cleanup EXIT
+
 curl --fail --location \
   https://github.com/GenLI3202/paper-study/releases/download/v0.1.0/paper-study.skill \
-  --output /tmp/paper-study.skill
-unzip -q /tmp/paper-study.skill -d "$DEST"
+  --output "$DOWNLOAD_DIR/paper-study.skill"
+curl --fail --location \
+  https://github.com/GenLI3202/paper-study/releases/download/v0.1.0/SHA256SUMS \
+  --output "$DOWNLOAD_DIR/SHA256SUMS"
+( cd "$DOWNLOAD_DIR" && shasum -a 256 -c SHA256SUMS )
+
+EXPECTED_MANIFEST="$(printf '%s\n' \
+  'paper-study/SKILL.md' \
+  'paper-study/references/note-template.md')"
+ACTUAL_MANIFEST="$(unzip -Z1 "$DOWNLOAD_DIR/paper-study.skill" | grep -v '/$' | LC_ALL=C sort)"
+if [ "$ACTUAL_MANIFEST" != "$EXPECTED_MANIFEST" ]; then
+  printf 'Unexpected package contents; installation stopped.\n' >&2
+  exit 1
+fi
+unzip -q "$DOWNLOAD_DIR/paper-study.skill" -d "$STAGE_DIR"
+
+if [ -e "$SKILLS_DIR/paper-study" ]; then
+  BACKUP="$(mktemp -d "$SKILLS_DIR/.paper-study-backup.XXXXXX")"
+  rmdir "$BACKUP"
+  mv "$SKILLS_DIR/paper-study" "$BACKUP"
+fi
+if ! mv "$STAGE_DIR/paper-study" "$SKILLS_DIR/paper-study"; then
+  if [ -n "$BACKUP" ]; then mv "$BACKUP" "$SKILLS_DIR/paper-study"; fi
+  exit 1
+fi
+if [ -n "$BACKUP" ]; then rm -rf "$BACKUP"; BACKUP=""; fi
 ```
 
 ## 调用示例
@@ -159,7 +192,6 @@ unzip -l "$REPO_ROOT/dist/paper-study.skill"
 - 需要可读取的原文页面和文件系统写入权限。OCR 或 PDF 提取错误仍可能破坏公式和定位信息，引用前应回到原文核验。
 - 它负责教学和记录论文，不负责复现实验，也不独立验证科学结论。
 - 持久记忆、Git 和可选集成都取决于宿主环境；Git 提交始终需要明确同意。
-- 在即将发布的 v0.1.0 正式上线前，Release 下载命令不会成功。
 
 ## 许可证
 
