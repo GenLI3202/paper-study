@@ -1,0 +1,108 @@
+{
+  "skill_name": "paper-study",
+  "evals": [
+    {
+      "id": 0,
+      "name": "fresh-orientation-before-teaching",
+      "prompt": "帮我精读 evals/files/aggregation-paper.md。我在做 PV+ESS colocation，最关心多个分布式储能怎样聚合提供电网服务，以及集中式和分布式架构怎么选；电池化学不用深入。我还没有读过论文。先建立阅读路线给我确认，这一轮不要开始正文教学。",
+      "expected_output": "Surveys the synthetic source, proposes a filter-specific route table with Depth, Progress, and Why, explicitly skips chemistry with a reason, and waits for route agreement before teaching.",
+      "files": [
+        "evals/files/aggregation-paper.md"
+      ],
+      "expectations": [
+        "Produces a per-section route table with Depth, Progress, and filter-specific Why columns",
+        "Explicitly deprioritizes or skips Appendix A and preserves the chemistry-related reason in its row",
+        "Uses the route table as the only proposed in-note progress source",
+        "Does not begin deep section teaching before the requested route-confirmation turn",
+        "Every section title and rationale is grounded in the supplied synthetic source rather than invented"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "guided-first-read-multiturn",
+      "prompt": "阅读路线已经确认，当前从 evals/files/aggregation-paper.md 的 §3.1 开始。我还没读过这一节。请模拟接下来的三个导师回复：我的消息依次是（1）‘开始吧’；（2）‘懂了，继续’；（3）‘所以集中式一定比分布式好吗？’。",
+      "expected_output": "A three-response guided-reading transcript: bounded source explanation first, continuation after the learner says continue, then a direct source-bounded response to the architecture question. Questions are sparse rather than mechanically appended.",
+      "files": [
+        "evals/files/aggregation-paper.md"
+      ],
+      "expectations": [
+        "The first tutor response explains a bounded piece of §3.1 before any comprehension question",
+        "The second tutor response continues the source explanation rather than forcing a teach-back gate",
+        "The three tutor responses do not each end with a comprehension question",
+        "The answer to whether centralized is always better distinguishes the paper's stated tradeoff from unsupported generalization",
+        "Uses exact page, section, figure, or table locators from the synthetic source"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "resume-and-migrate-legacy-note",
+      "prompt": "接着 evals/files/legacy-study-notes.md 继续读 evals/files/aggregation-paper.md。先把旧笔记里重复的学习进度块和优先级表迁移成单一的路线表，再从真正未完成的位置继续；不要重讲已经完成的 §1 和 §2。",
+      "expected_output": "Reads the old note and source, migrates state row-by-row into one route table with a precise restart boundary, preserves skip reasons, removes the obsolete mutable block, and resumes at §3.1 after the recorded data-flow description.",
+      "files": [
+        "evals/files/aggregation-paper.md",
+        "evals/files/legacy-study-notes.md"
+      ],
+      "expectations": [
+        "Preserves completed §1 and §2 rather than restarting",
+        "Adds Progress to the existing priority table while preserving Depth and Why",
+        "Records §3.1 as in progress with an exact restart boundary after the data-flow description",
+        "Keeps Appendix A visible as skipped with its original reason",
+        "Removes the obsolete standalone completed/current/pending block only after transferring all states",
+        "Does not invent a conflict between trackers that agree"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "multi-paper-synthesis",
+      "prompt": "我们已经确认这样读：evals/files/aggregation-paper.md 精读 §2–4、跳过 Appendix A；evals/files/aging-paper.md 精读 §2–3、§1 中读。请建立每篇各自的学习笔记和一个 synthesis.md，开始梳理聚合目标函数与电池老化成本之间的冲突。",
+      "expected_output": "Separate note per paper with its own route-and-progress table, plus a synthesis file with terminology mapping, source-grounded tension, shared gaps, and precise locators.",
+      "files": [
+        "evals/files/aggregation-paper.md",
+        "evals/files/aging-paper.md"
+      ],
+      "expectations": [
+        "Creates a separate note for each synthetic paper",
+        "Each paper note has one route table with Progress and no duplicate mutable tracker",
+        "Creates a separate synthesis file with a terminology-mapping table",
+        "Explains that aggregation Eq. 1 omits degradation cost while aging Eq. 2 introduces throughput cost",
+        "Identifies allocation of degradation cost among independently owned sites as a gap not covered by either source",
+        "Uses exact synthetic page and equation locators without presenting fixtures as real publications"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "quoted-foldable-tangent",
+      "prompt": "路线已经确认，我们正在读 evals/files/aggregation-paper.md §3。论文只说 distributed price coordination，没有提 ADMM。我想用 evals/files/admm-background.md 比较 ADMM，但那是支线。请给出要写进笔记的片段：论文主线保持可见，ADMM 背景放可折叠注释，并把路线表中的进度更新到准确位置。",
+      "expected_output": "Visible source-grounded main line, a fully blockquoted details annotation for ADMM, clear epistemic labels, and a single route-table Progress update without a duplicate tracker.",
+      "files": [
+        "evals/files/aggregation-paper.md",
+        "evals/files/admm-background.md"
+      ],
+      "expectations": [
+        "Keeps the paper's distributed price-coordination claim visible outside the fold",
+        "Does not attribute ADMM or a convergence proof to the synthetic paper",
+        "Every line from <details> through </details>, including blank separators, begins with >",
+        "Labels paper content, external background, and research inference separately",
+        "Uses evals/files/admm-background.md as the source for the ADMM branch",
+        "Updates §3 Progress in the route table and does not create a separate progress block",
+        "Does not hide a source-boundary warning solely inside the fold"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "already-read-targeted-questioning",
+      "prompt": "阅读路线已经确认。我已经读过 evals/files/aggregation-paper.md §2，并写下：‘Eq. 1 里的 reserve_shortfall_penalty 就是电池老化成本，所以作者已经处理了 degradation。’请不要从头重讲；先指向相关原文，再用一个聚焦问题帮我定位这个理解哪里需要重新检查。",
+      "expected_output": "Treats the current chunk as already read, points back to the exact Eq. 1 terms, and asks one focused comparison question that exposes the mismatch rather than replaying a first-read lecture.",
+      "files": [
+        "evals/files/aggregation-paper.md"
+      ],
+      "expectations": [
+        "Does not restart the paper or re-teach all of §2",
+        "Points to p.2 Eq. 1 and distinguishes reserve shortfall from battery degradation",
+        "Uses the learner's written interpretation as evidence and asks one focused comparison question about the terms in Eq. 1",
+        "Does not falsely claim the synthetic paper includes a degradation term",
+        "Explains enough to repair the misconception rather than asking an empty question"
+      ]
+    }
+  ]
+}

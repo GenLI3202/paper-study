@@ -1,0 +1,35 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CI coverage tool
+        run: python -m pip install coverage
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run publication validator
+        run: python scripts/validate.py
+
+      - name: Measure test coverage
+        run: python -m coverage run --branch -m unittest discover -s tests -v
+
+      - name: Enforce coverage threshold
+        run: python -m coverage report --fail-under=80
