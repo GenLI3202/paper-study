@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import configparser
 import importlib.util
 import io
 import json
@@ -80,7 +81,7 @@ def _write_valid_repository(root: Path) -> None:
     fixtures.mkdir(parents=True)
     (skill_root / "SKILL.md").write_text(_skill_text(), encoding="utf-8")
     (references / "note-template.md").write_text(
-        "# Note template\n\nReturn to the [skill](../SKILL.md).\n",
+        "# Note template\n\nUse this synthetic template.\n",
         encoding="utf-8",
     )
     for index in range(6):
@@ -190,6 +191,43 @@ class ValidatorTestCase(unittest.TestCase):
 
         self.assert_error_contains(errors, "frontmatter compatibility must say standalone")
 
+    def test_frontmatter_rejects_negated_standalone_claim(self) -> None:
+        skill = self.root / "skill" / "paper-study" / "SKILL.md"
+        skill.write_text(
+            _skill_text(
+                compatibility=(
+                    "This skill is not standalone. The teach and document-visual-enhancer "
+                    "skills are optional."
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "compatibility must not negate standalone")
+
+    def test_frontmatter_rejects_unsupported_key(self) -> None:
+        skill = self.root / "skill" / "paper-study" / "SKILL.md"
+        content = _skill_text().replace("name: paper-study\n", "name: paper-study\nextra: true\n")
+        skill.write_text(content, encoding="utf-8")
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "unsupported frontmatter key: extra")
+
+    def test_frontmatter_rejects_yaml_sequences_in_supported_subset(self) -> None:
+        skill = self.root / "skill" / "paper-study" / "SKILL.md"
+        content = _skill_text().replace(
+            "description: >\n  Guides a careful, source-grounded academic paper study session.",
+            "description:\n  - invalid sequence",
+        )
+        skill.write_text(content, encoding="utf-8")
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "unsupported YAML frontmatter")
+
     def test_missing_frontmatter_is_reported_cleanly(self) -> None:
         skill = self.root / "skill" / "paper-study" / "SKILL.md"
         skill.write_text("# No frontmatter\n", encoding="utf-8")
@@ -227,6 +265,50 @@ class ValidatorTestCase(unittest.TestCase):
         self.assert_error_contains(errors, "eval 0 is missing required keys: expectations")
         self.assertEqual(REQUIRED_EVAL_KEYS - set(payload["evals"][0]), {"expectations"})  # type: ignore[index]
 
+    def test_eval_id_must_be_an_integer(self) -> None:
+        payload = _read_evals(self.root)
+        payload["evals"][0]["id"] = "zero"  # type: ignore[index]
+        _write_evals(self.root, payload)
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "eval 0 id must be an integer")
+
+    def test_eval_scalar_fields_require_nonempty_strings(self) -> None:
+        invalid_values = {"name": "  ", "prompt": 7, "expected_output": ""}
+        for field, value in invalid_values.items():
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                _write_valid_repository(root)
+                payload = _read_evals(root)
+                payload["evals"][0][field] = value  # type: ignore[index]
+                _write_evals(root, payload)
+
+                errors = validate.validate_repository(root)
+
+                self.assert_error_contains(
+                    errors, f"eval 0 {field} must be a nonempty string"
+                )
+
+    def test_eval_list_fields_require_nonempty_string_items(self) -> None:
+        invalid_values = {
+            "files": [],
+            "expectations": ["valid", "  "],
+        }
+        for field, value in invalid_values.items():
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                _write_valid_repository(root)
+                payload = _read_evals(root)
+                payload["evals"][0][field] = value  # type: ignore[index]
+                _write_evals(root, payload)
+
+                errors = validate.validate_repository(root)
+
+                self.assert_error_contains(
+                    errors, f"eval 0 {field} must be a nonempty list of nonempty strings"
+                )
+
     def test_malformed_eval_json_is_reported_cleanly(self) -> None:
         (self.root / "evals" / "evals.json").write_text("{broken", encoding="utf-8")
 
@@ -252,6 +334,28 @@ class ValidatorTestCase(unittest.TestCase):
 
         self.assert_error_contains(errors, "eval 0 fixture must stay under evals/files")
 
+    def test_eval_fixture_root_cannot_resolve_outside_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as outside_directory:
+            fixture_root = self.root / "evals" / "files"
+            shutil.rmtree(fixture_root)
+            outside = Path(outside_directory)
+            for index in range(6):
+                (outside / f"fixture-{index}.md").write_text("# External\n", encoding="utf-8")
+            fixture_root.symlink_to(outside, target_is_directory=True)
+
+            errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "eval fixture directory resolves outside repository")
+
+    def test_nul_eval_fixture_path_is_reported_without_exception(self) -> None:
+        payload = _read_evals(self.root)
+        payload["evals"][0]["files"] = ["evals/files/bad\0name.md"]  # type: ignore[index]
+        _write_evals(self.root, payload)
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "eval 0 fixture path contains NUL")
+
     def test_broken_local_markdown_link_is_reported(self) -> None:
         reference = self.root / "skill" / "paper-study" / "references" / "note-template.md"
         reference.write_text("[missing](missing.md)\n", encoding="utf-8")
@@ -261,13 +365,37 @@ class ValidatorTestCase(unittest.TestCase):
         self.assert_error_contains(errors, "broken local Markdown link")
         self.assert_error_contains(errors, "references/note-template.md")
 
+    def test_absolute_markdown_link_is_rejected_even_when_it_exists(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".md") as outside:
+            readme = self.root / "README.md"
+            readme.write_text(f"[outside]({outside.name})\n", encoding="utf-8")
+
+            errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "local Markdown link must be relative")
+
+    def test_traversing_markdown_link_is_rejected(self) -> None:
+        reference = self.root / "skill" / "paper-study" / "references" / "note-template.md"
+        reference.write_text("[skill](../SKILL.md)\n", encoding="utf-8")
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "local Markdown link must not traverse directories")
+
+    def test_markdown_link_cannot_resolve_outside_repository(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".md") as outside:
+            linked = self.root / "linked.md"
+            linked.symlink_to(outside.name)
+            (self.root / "README.md").write_text("[outside](linked.md)\n", encoding="utf-8")
+
+            errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "local Markdown link resolves outside repository")
+
     def test_forbidden_publication_markers_are_rejected(self) -> None:
         markers = [
-            "/Users/",
-            "paper-study-workspace",
-            "originSessionId",
-            "LEMS",
-            "Optimal Battery Bidding",
+            "/" + "Users" + "/",
+            "origin" + "SessionId",
         ]
         for marker in markers:
             with self.subTest(marker=marker), tempfile.TemporaryDirectory() as directory:
@@ -281,14 +409,29 @@ class ValidatorTestCase(unittest.TestCase):
                 self.assert_error_contains(errors, f"forbidden publication text {marker!r}")
 
     def test_repository_readmes_are_included_in_publication_scan(self) -> None:
+        marker = "origin" + "SessionId"
         (self.root / "README.md").write_text(
-            "Publication instructions leaked originSessionId.\n", encoding="utf-8"
+            f"Publication instructions leaked {marker}.\n", encoding="utf-8"
         )
 
         errors = validate.validate_repository(self.root)
 
-        self.assert_error_contains(errors, "forbidden publication text 'originSessionId'")
+        self.assert_error_contains(errors, f"forbidden publication text {marker!r}")
         self.assert_error_contains(errors, "README.md")
+
+    def test_scripts_and_workflows_are_included_in_publication_scan(self) -> None:
+        marker = "/" + "Users" + "/"
+        script = self.root / "scripts" / "helper.py"
+        workflow = self.root / ".github" / "workflows" / "check.yml"
+        script.parent.mkdir(parents=True)
+        workflow.parent.mkdir(parents=True)
+        script.write_text(f'PRIVATE_PATH = "{marker}example"\n', encoding="utf-8")
+        workflow.write_text("name: Safe\n", encoding="utf-8")
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, f"forbidden publication text {marker!r}")
+        self.assert_error_contains(errors, "scripts/helper.py")
 
     def test_package_source_allowlist_rejects_extra_file(self) -> None:
         extra = self.root / "skill" / "paper-study" / "helper.py"
@@ -297,6 +440,39 @@ class ValidatorTestCase(unittest.TestCase):
         errors = validate.validate_repository(self.root)
 
         self.assert_error_contains(errors, "package source is not allowlisted: helper.py")
+
+    def test_package_manifest_rejects_extra_reference_file(self) -> None:
+        extra = self.root / "skill" / "paper-study" / "references" / "extra.md"
+        extra.write_text("# Extra\n", encoding="utf-8")
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "package source is not allowlisted: references/extra.md")
+
+    def test_package_rejects_directory_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as outside_directory:
+            link = self.root / "skill" / "paper-study" / "references" / "linked-directory"
+            link.symlink_to(outside_directory, target_is_directory=True)
+
+            errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "package directory must not be a symlink")
+
+    def test_package_root_cannot_resolve_outside_repository(self) -> None:
+        package_root = self.root / "skill" / "paper-study"
+        with tempfile.TemporaryDirectory() as outside_directory:
+            outside = Path(outside_directory) / "paper-study"
+            (outside / "references").mkdir(parents=True)
+            (outside / "SKILL.md").write_text(_skill_text(), encoding="utf-8")
+            (outside / "references" / "note-template.md").write_text(
+                "# External template\n", encoding="utf-8"
+            )
+            shutil.rmtree(package_root)
+            package_root.symlink_to(outside, target_is_directory=True)
+
+            errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "package source resolves outside repository")
 
     def test_teach_dependency_must_be_optional_or_conditional(self) -> None:
         skill = self.root / "skill" / "paper-study" / "SKILL.md"
@@ -315,6 +491,22 @@ class ValidatorTestCase(unittest.TestCase):
         self.assert_error_contains(
             errors, "dependency 'teach' must be described as optional or conditional"
         )
+
+    def test_negated_optional_dependency_wording_is_rejected(self) -> None:
+        skill = self.root / "skill" / "paper-study" / "SKILL.md"
+        skill.write_text(
+            _skill_text(
+                compatibility=(
+                    "Works standalone. The teach skill is not optional. The "
+                    "document-visual-enhancer skill is optional."
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "dependency 'teach' must not negate optionality")
 
     def test_visual_dependency_must_be_optional_or_conditional(self) -> None:
         skill = self.root / "skill" / "paper-study" / "SKILL.md"
@@ -357,18 +549,34 @@ class ValidatorTestCase(unittest.TestCase):
         self.assertIn("Validation failed", output.getvalue())
         self.assertIn("required file is missing", output.getvalue())
 
-    def test_github_workflow_runs_tests_validator_and_coverage_gate(self) -> None:
+    def test_coverage_configuration_measures_scripts_and_enforces_gate(self) -> None:
+        configuration = configparser.ConfigParser()
+        loaded = configuration.read(REPO_ROOT / ".coveragerc", encoding="utf-8")
+
+        self.assertEqual(loaded, [str(REPO_ROOT / ".coveragerc")])
+        self.assertTrue(configuration.getboolean("run", "branch"))
+        self.assertEqual(configuration.get("run", "source").strip(), "scripts")
+        self.assertEqual(configuration.getint("report", "fail_under"), 80)
+
+    def test_github_workflow_runs_local_release_checks_without_external_code(self) -> None:
         workflow = (REPO_ROOT / ".github" / "workflows" / "validate.yml").read_text(
             encoding="utf-8"
         )
 
         self.assertIn("python -m unittest discover -s tests -v", workflow)
         self.assertIn("python scripts/validate.py", workflow)
-        self.assertIn("python -m pip install coverage", workflow)
         self.assertIn(
-            "python -m coverage run --branch -m unittest discover -s tests -v", workflow
+            "python -m pip install coverage==7.15.4 PyYAML==6.0.3", workflow
         )
-        self.assertIn("python -m coverage report --fail-under=80", workflow)
+        self.assertIn("python -m coverage run -m unittest discover -s tests -v", workflow)
+        self.assertIn("python -m coverage report", workflow)
+        self.assertIn("yaml.safe_load", workflow)
+        self.assertIn('Path("skill/paper-study/SKILL.md")', workflow)
+        self.assertIn('source = Path("skill/paper-study")', workflow)
+        self.assertIn('"paper-study/SKILL.md"', workflow)
+        self.assertIn('"paper-study/references/note-template.md"', workflow)
+        self.assertIn("names != expected_archive", workflow)
+        self.assertNotIn("repository: anthropics/skills", workflow)
 
 
 if __name__ == "__main__":

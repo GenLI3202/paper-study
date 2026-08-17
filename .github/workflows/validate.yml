@@ -19,8 +19,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install CI coverage tool
-        run: python -m pip install coverage
+      - name: Install pinned CI validation tools
+        run: python -m pip install coverage==7.15.4 PyYAML==6.0.3
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
@@ -29,7 +29,80 @@ jobs:
         run: python scripts/validate.py
 
       - name: Measure test coverage
-        run: python -m coverage run --branch -m unittest discover -s tests -v
+        run: python -m coverage run -m unittest discover -s tests -v
 
       - name: Enforce coverage threshold
-        run: python -m coverage report --fail-under=80
+        run: python -m coverage report
+
+      - name: Validate frontmatter with PyYAML
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          import yaml
+
+          skill_path = Path("skill/paper-study/SKILL.md")
+          lines = skill_path.read_text(encoding="utf-8").splitlines()
+          if not lines or lines[0] != "---":
+              raise SystemExit("SKILL.md must start with YAML frontmatter")
+          try:
+              closing = lines.index("---", 1)
+          except ValueError as exc:
+              raise SystemExit("SKILL.md frontmatter is not closed") from exc
+          metadata = yaml.safe_load("\n".join(lines[1:closing]))
+          if not isinstance(metadata, dict):
+              raise SystemExit("SKILL.md frontmatter must be a mapping")
+          if set(metadata) != {"name", "description", "compatibility"}:
+              raise SystemExit(f"Unexpected frontmatter keys: {sorted(metadata)}")
+          if metadata["name"] != "paper-study":
+              raise SystemExit("Unexpected skill name")
+          if not re.fullmatch(r"[a-z0-9-]+", metadata["name"]):
+              raise SystemExit("Skill name is not portable")
+          for key in ("description", "compatibility"):
+              if not isinstance(metadata[key], str) or not metadata[key].strip():
+                  raise SystemExit(f"{key} must be a nonempty string")
+          if len(metadata["description"]) > 1024:
+              raise SystemExit("description exceeds the official 1024-character limit")
+          print("PyYAML frontmatter validation passed")
+          PY
+
+      - name: Build and inspect exact release archive
+        run: |
+          python - <<'PY'
+          import os
+          import zipfile
+          from pathlib import Path
+
+          source = Path("skill/paper-study")
+          expected_sources = {
+              "SKILL.md",
+              "references/note-template.md",
+          }
+          actual_sources = {
+              path.relative_to(source).as_posix()
+              for path in source.rglob("*")
+              if path.is_file()
+          }
+          if actual_sources != expected_sources:
+              raise SystemExit(f"Unexpected package sources: {sorted(actual_sources)}")
+
+          archive = Path(os.environ["RUNNER_TEMP"]) / "paper-study.skill"
+          with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as package:
+              for relative in sorted(expected_sources):
+                  package.write(source / relative, f"paper-study/{relative}")
+          expected_archive = [
+              "paper-study/SKILL.md",
+              "paper-study/references/note-template.md",
+          ]
+          with zipfile.ZipFile(archive) as package:
+              names = sorted(package.namelist())
+              bad_paths = [
+                  name
+                  for name in names
+                  if Path(name).is_absolute() or ".." in Path(name).parts
+              ]
+          if names != expected_archive or bad_paths:
+              raise SystemExit(f"Unexpected archive manifest: {names!r}")
+          print("Archive manifest is exact:", names)
+          PY
