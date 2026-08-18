@@ -2,158 +2,65 @@
 
 [简体中文](README.zh-CN.md)
 
-`paper-study` is a Claude skill for studying one to three related academic papers with a learner, section by section. It addresses the gap between a one-shot summary and a durable understanding: the learner's research question determines what deserves attention, Claude teaches from the actual source, and each understood section becomes a restartable note with precise source boundaries.
+## Install with your AI agent
+
+You can copy and paste this prompt into an AI agent that has access to files and GitHub:
+
+```text
+Install paper-study from https://github.com/GenLI3202/paper-study for the AI-agent host running this chat.
+
+1. Determine whether this host supports reusable SKILL.md skills and find its user-level or project-level skills directory.
+2. Discover the latest stable release at v0.1.1 or newer, but do not install from main or directly from the mutable latest-release link. Show me the exact release tag, commit SHA, install scope, and target path; ask me to approve them before writing anything.
+3. From the approved tagged release, download paper-study.skill and SHA256SUMS. Treat them as untrusted until verification. Check SHA-256 and the GitHub asset digest when available. Inspect the ZIP without executing it: accept only the regular files paper-study/SKILL.md and paper-study/references/note-template.md; reject extra entries, absolute paths, path traversal, and symlinks.
+4. Stage the verified directory on the same filesystem. If paper-study already exists, ask me again before replacing it. Replace the whole directory rather than merging files, retain a rollback copy until verification, then confirm both files are discoverable and tell me whether to restart or reload the host.
+5. If this host does not support SKILL.md skills, explain the closest supported custom-instruction or workspace setup instead. Do not claim installation succeeded unless you verified it.
+```
+
+`paper-study` is a portable AI-agent skill for studying one to three related academic papers section by section. The learner's research question controls what deserves attention, the agent teaches from the actual source, and each understood section becomes a restartable note with precise source boundaries.
 
 Repository: <https://github.com/GenLI3202/paper-study>
 
 ## What it does
 
-The skill follows one continuous loop:
+1. **Orient** — identify the learner's research question and what the paper should contribute.
+2. **Plan the route** — survey the paper and agree on one priority/progress table, including explicit skips and reasons.
+3. **Guide the first read** — explain a bounded source-grounded chunk before asking occasional diagnostic questions. The learner may interrupt or simply say “continue.”
+4. **Write durable notes** — record exact pages, equations, figures, data boundaries, misconceptions, links, and research implications while the discussion is fresh.
+5. **Resume and recalibrate** — continue from the note's route table, adjust depth when the research filter changes, and state the most useful next step.
 
-1. **Orient** — establish the learner's research question and what this paper should contribute to it.
-2. **Route and map progress** — survey headings, captions, equations, and the introduction's roadmap; agree on a section-by-section depth/priority table. Its `Progress` column is the note's single source of truth, including explicit skips and their reasons.
-3. **Guide the first read** — open the actual pages and explain one bounded chunk before checking understanding. On unread material, explanation comes first and questions are sparse; the learner may interrupt or simply say “continue.” If the learner has already read the chunk or brings an interpretation, targeted questions can diagnose reasoning. The skill never asks the learner to guess unread content and never states formulas, results, or attributions from memory.
-4. **Write a durable note** — write each section while the discussion is fresh, using precise page/equation/figure locators, data-boundary warnings, demonstrated misconceptions, cross-links, and research implications. Useful tangents can be folded without hiding the paper's main argument.
-5. **Recalibrate and wrap up** — revisit depth at section boundaries when the research filter changes or the paper stops paying off. At the end, synchronize the route table, update available cross-session memory, and state what the paper contributed, where it fell short, and the most useful next step.
+The complete workflow is in [`skill/paper-study/SKILL.md`](skill/paper-study/SKILL.md). Note structure and citation conventions are in [`references/note-template.md`](skill/paper-study/references/note-template.md).
 
-The detailed behavior is defined by [`skill/paper-study/SKILL.md`](skill/paper-study/SKILL.md); note structure and citation conventions are in [`references/note-template.md`](skill/paper-study/references/note-template.md).
+## Compatibility
 
-## Installation
+The core skill is provider-neutral. It works with Claude Code, GPT-based coding agents, and other AI-agent hosts **when the host can load `SKILL.md`-style instructions, read the source PDF/files, and write a note file**. Persistent memory, Git, tutoring extensions, and diagram tools are optional.
 
-Claude discovers the nested `skill/paper-study` directory; installing the repository root is not sufficient.
+A chat interface without filesystem or reusable-instruction support cannot install the skill by itself. In that case, use the host's closest custom-instruction or project-workspace feature.
 
-### Clone and copy
+## Manual installation
 
-User-level installation:
+1. Choose a fixed tagged release at v0.1.1 or newer and record its commit SHA; do not install directly from `main`.
+2. Verify the package checksum, GitHub asset digest when available, and exact two-file archive manifest before extracting.
+3. Place the verified top-level `paper-study/` directory in the skill directory documented by your AI-agent host. The final path must end with `paper-study/SKILL.md`.
+4. If the target exists, obtain consent and keep a backup before replacing it. Do not merge-copy into an existing directory; replace the whole directory and verify the result before removing the backup.
 
-```bash
-git clone https://github.com/GenLI3202/paper-study.git
-mkdir -p "$HOME/.claude/skills"
-cp -R paper-study/skill/paper-study "$HOME/.claude/skills/"
+Do not install the repository root as the skill.
+
+### Claude Code-specific example
+
+For Claude Code only, the user-level target is commonly `~/.claude/skills/paper-study`. GPT-based agents and other hosts must use their own documented skill or instruction location rather than copying this path.
+
+### Release archive
+
+Use the [latest release](https://github.com/GenLI3202/paper-study/releases/latest) only to discover a stable tag at v0.1.1 or newer; v0.1.0 predates the provider-neutral update. Before extracting, verify the SHA-256 checksum in `SHA256SUMS` and the asset digest shown by GitHub when available. `paper-study.skill` is ZIP-compatible and must contain only these regular files:
+
+```text
+paper-study/SKILL.md
+paper-study/references/note-template.md
 ```
 
-Project-level installation, run from the target project:
-
-```bash
-mkdir -p .claude/skills
-cp -R /path/to/paper-study/skill/paper-study .claude/skills/
-```
-
-Start a new Claude session after installation so the skill can be discovered.
-
-### Install the v0.1.0 `.skill` archive
-
-The [v0.1.0 release](https://github.com/GenLI3202/paper-study/releases/tag/v0.1.0) provides the package and its checksum. The following user-level installation uses private temporary directories, verifies both the checksum and the exact two-file archive manifest, and replaces an existing installation through a same-filesystem rename with rollback:
-
-```bash
-(
-  set -euo pipefail
-
-  SKILLS_DIR="${SKILLS_DIR:-$HOME/.claude/skills}" # Project example: SKILLS_DIR=".claude/skills"
-  mkdir -p "$SKILLS_DIR"
-  SKILLS_DIR="$(cd "$SKILLS_DIR" && pwd -P)"
-  DOWNLOAD_DIR=""
-  STAGE_DIR=""
-  BACKUP=""
-
-  cleanup() {
-    exit_status=$?
-    set +e
-    [ -z "$DOWNLOAD_DIR" ] || rm -rf "$DOWNLOAD_DIR"
-    [ -z "$STAGE_DIR" ] || rm -rf "$STAGE_DIR"
-    if [ "$exit_status" -ne 0 ] && [ -n "$BACKUP" ] && \
-       { [ -e "$BACKUP" ] || [ -L "$BACKUP" ]; }; then
-      if [ ! -e "$SKILLS_DIR/paper-study" ] && \
-         [ ! -L "$SKILLS_DIR/paper-study" ] && \
-         mv "$BACKUP" "$SKILLS_DIR/paper-study"; then
-        BACKUP=""
-        printf 'Installation failed; the previous version was restored.\n' >&2
-      fi
-    fi
-    if [ "$exit_status" -eq 0 ] && [ -n "$BACKUP" ] && \
-       { [ -e "$BACKUP" ] || [ -L "$BACKUP" ]; }; then
-      if rm -rf "$BACKUP"; then
-        BACKUP=""
-      else
-        exit_status=1
-        printf 'Installation succeeded, but backup cleanup failed at %s\n' "$BACKUP" >&2
-      fi
-    elif [ -n "$BACKUP" ] && \
-         { [ -e "$BACKUP" ] || [ -L "$BACKUP" ]; }; then
-      printf 'Installation failed; backup retained at %s\n' "$BACKUP" >&2
-    fi
-    trap - EXIT
-    exit "$exit_status"
-  }
-  trap cleanup EXIT
-
-  DOWNLOAD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/paper-study-download.XXXXXX")"
-  STAGE_DIR="$(mktemp -d "$SKILLS_DIR/.paper-study-install.XXXXXX")"
-
-  curl --fail --location \
-    https://github.com/GenLI3202/paper-study/releases/download/v0.1.0/paper-study.skill \
-    --output "$DOWNLOAD_DIR/paper-study.skill"
-  curl --fail --location \
-    https://github.com/GenLI3202/paper-study/releases/download/v0.1.0/SHA256SUMS \
-    --output "$DOWNLOAD_DIR/SHA256SUMS"
-  python3 - \
-    "$DOWNLOAD_DIR/paper-study.skill" \
-    "$DOWNLOAD_DIR/SHA256SUMS" \
-    "$STAGE_DIR" <<'PY'
-import hashlib
-import hmac
-import re
-import stat
-import sys
-import zipfile
-from pathlib import Path
-
-archive = Path(sys.argv[1])
-checksum_file = Path(sys.argv[2])
-stage = Path(sys.argv[3])
-checksum_text = checksum_file.read_text(encoding="ascii")
-checksum_match = re.fullmatch(r"([0-9a-f]{64})  paper-study\.skill\n", checksum_text)
-archive_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-if checksum_match is None or not hmac.compare_digest(
-    checksum_match.group(1), archive_digest
-):
-    raise SystemExit("Checksum verification failed; installation stopped.")
-expected = [
-    "paper-study/SKILL.md",
-    "paper-study/references/note-template.md",
-]
-with zipfile.ZipFile(archive) as package:
-    infos = package.infolist()
-    names = sorted(info.filename for info in infos)
-    unsafe = [
-        info.filename
-        for info in infos
-        if Path(info.filename).is_absolute()
-        or ".." in Path(info.filename).parts
-        or not stat.S_ISREG(info.external_attr >> 16)
-    ]
-    if names != expected or unsafe:
-        raise SystemExit("Unexpected or unsafe package contents; installation stopped.")
-    for info in infos:
-        target = stage / info.filename
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(package.read(info))
-PY
-
-  if [ -e "$SKILLS_DIR/paper-study" ] || [ -L "$SKILLS_DIR/paper-study" ]; then
-    BACKUP="$(mktemp -d "$SKILLS_DIR/.paper-study-backup.XXXXXX")"
-    rmdir "$BACKUP"
-    mv "$SKILLS_DIR/paper-study" "$BACKUP"
-  fi
-  mv "$STAGE_DIR/paper-study" "$SKILLS_DIR/paper-study"
-)
-```
-
-## Invocation examples
+## Usage
 
 Ask naturally; no special slash command is required.
-
-English:
 
 ```text
 Help me study papers/aggregation.pdf section by section. I care about coordination architecture, not battery chemistry. Build a reading route for my approval before teaching, and keep durable notes in learning/aggregation-notes.md.
@@ -163,64 +70,18 @@ Help me study papers/aggregation.pdf section by section. I care about coordinati
 Continue where we stopped in learning/aggregation-notes.md. Read the paper's actual pages, do not reteach completed sections, and update the route table as we go.
 ```
 
-Chinese:
+The skill is for guided deep reading, not one-shot summaries, abstract extraction, citation formatting, or generating a literature review from papers already read.
 
-```text
-带我精读 papers/aggregation.pdf。我最关心聚合协调架构，不需要深入电池化学。先建立阅读路线让我确认，再开始领读，并把长期笔记写到 learning/aggregation-notes.md。
-```
+## Notes and permissions
 
-```text
-接着 learning/aggregation-notes.md 上次停下的位置继续。先读论文原文，不要重讲已完成部分，并随进度更新路线表。
-```
+- The note's route table is the complete, reader-visible resumption state. Host-provided persistent memory may supplement it only after the reader explicitly opts in; memory never replaces the note.
+- Git is optional. The agent must obtain explicit consent before committing and must stage only the named note files.
+- Papers, OCR, annotations, and existing notes are treated as untrusted data, not as instructions to access unrelated files, use tools, or perform network or Git actions.
+- Optional named integrations such as `teach` and `document-visual-enhancer` are examples, not requirements; the bundled workflow works without them.
 
-The skill is intended for guided deep reading, not one-shot summarization, abstract extraction, citation formatting, or generating a literature review from papers already read.
+## Development
 
-## Notes, memory, and Git
-
-- **Notes are durable state.** The route table records current progress; the body records source-grounded understanding. Multiple papers receive separate note files plus a synthesis file.
-- **Memory is resumable context.** When the host provides persistent memory, the skill records the current research filter, progress, and next step. Memory complements rather than replaces the reader-visible note, and availability depends on the Claude environment.
-- **Git is optional and consent-based.** If notes are inside a Git repository, the skill asks once whether it may commit each completed section and follows that answer. It must not commit without explicit consent. When allowed, it follows the repository's conventions and stages only named note files, never the whole working tree.
-
-## Optional integrations
-
-The skill works standalone with file/PDF reading and filesystem write tools.
-
-- [`teach`](https://github.com/anthropics/skills) can add tutoring techniques, while the skill's own explanation-first loop remains sufficient.
-- `document-visual-enhancer` can add fuller Mermaid guidance and validation for diagram-heavy notes; the bundled note conventions include a standalone diagram path.
-
-Neither integration is required.
-
-## Repository layout
-
-```text
-.
-├── README.md
-├── README.zh-CN.md
-├── LICENSE
-├── .gitignore
-├── skill/
-│   └── paper-study/
-│       ├── SKILL.md
-│       └── references/
-│           └── note-template.md
-├── evals/
-│   ├── evals.json
-│   └── files/
-│       ├── aggregation-paper.md
-│       ├── aging-paper.md
-│       ├── admm-background.md
-│       └── legacy-study-notes.md
-├── scripts/
-│   └── validate.py
-└── tests/
-    ├── test_validate.py
-    ├── test_validate_dependencies.py
-    └── test_validate_frontmatter.py
-```
-
-## Validation, evals, coverage, and packaging
-
-Run the local checks from the repository root:
+Run the local checks from the repository root. The coverage command requires `coverage==7.15.4` (`python3 -m pip install coverage==7.15.4`).
 
 ```bash
 python3 scripts/validate.py
@@ -229,35 +90,13 @@ python3 -m coverage run --branch -m unittest discover -s tests -v
 python3 -m coverage report --fail-under=80
 ```
 
-Install the `coverage` package first if it is not already available. The repository validator checks the skill metadata and allowlisted package contents, local Markdown links, eval schema and fixture paths, privacy exclusions, and standalone/optional-dependency wording. The test suite exercises success and failure paths; branch-aware coverage must remain at least 80%.
+The fixtures under [`evals/files/`](evals/files/) are synthetic regression inputs, not published papers or benchmark evidence. CI packages only `SKILL.md` and `references/note-template.md`; release publication remains a separate maintainer action.
 
-The six cases in [`evals/evals.json`](evals/evals.json) cover orientation before teaching, explanation-first multi-turn reading, legacy-note migration, multi-paper synthesis, source-labelled foldable tangents, and targeted questioning of an already-read section. Run them through the official `skill-creator` evaluation workflow for behavioral regression testing. The files under `evals/files/` are deliberately synthetic examples/regression inputs; they are not published papers, a public benchmark dataset, or evidence of benchmark performance. Passing local tests or the coverage gate is not a published behavioral benchmark score.
+## Privacy and limitations
 
-For official structural validation and packaging, use the `skill-creator` scripts from its directory (in a Python environment with PyYAML available):
+Papers and notes are processed according to the selected AI-agent host and provider. Keep confidential material only in approved locations, and add project-specific Git exclusions for PDFs or notes when needed.
 
-```bash
-REPO_ROOT="/absolute/path/to/paper-study"
-python -m scripts.quick_validate "$REPO_ROOT/skill/paper-study"
-python -m scripts.package_skill "$REPO_ROOT/skill/paper-study" "$REPO_ROOT/dist"
-unzip -l "$REPO_ROOT/dist/paper-study.skill"
-```
-
-`package_skill` validates before creating `dist/paper-study.skill`; the archive is ZIP-compatible and contains the top-level `paper-study/` skill directory.
-
-On a successful push to `main`, CI uploads a 30-day staging artifact named `paper-study-<full-commit-SHA>` containing `paper-study.skill` and `SHA256SUMS`. This workflow artifact is **not** a GitHub Release and is never a substitute for the documented release URLs. To publish `v0.1.0`, the maintainer must select the successful `main` run whose head SHA is exactly the commit targeted by the `v0.1.0` tag, download that commit-bound artifact, verify `SHA256SUMS`, and attach both files unchanged to the GitHub Release. The validation workflow does not create tags or publish Release assets automatically.
-
-## Privacy
-
-The skill contains no standalone uploader, but papers and notes read by Claude are processed according to the policies of the Claude environment in which it runs. Keep confidential material in approved locations.
-
-[`.gitignore`](.gitignore) excludes generated evaluation workspaces, `dist/`, `*.skill`, coverage output, Python caches, and `.DS_Store`. It does **not** exclude arbitrary PDFs or study-note paths. Add project-specific exclusions or keep sensitive sources and notes outside this repository before running evals or Git commands.
-
-## Limitations
-
-- Best suited to one to three related papers; broader literature reviews need a different workflow.
-- Requires readable source pages and filesystem write access. OCR or PDF extraction errors can still corrupt equations and locators, so verify notes against the source before citing them.
-- It teaches and documents papers; it does not reproduce experiments or validate scientific claims independently.
-- Persistent memory, Git, and optional integrations depend on the host environment. Git commits always require explicit consent.
+The skill requires readable source pages and filesystem write access. OCR or extraction errors can still corrupt equations and locators, so verify notes against the source before citing them. It teaches and documents papers; it does not reproduce experiments or independently validate scientific claims.
 
 ## License
 
