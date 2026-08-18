@@ -112,6 +112,53 @@ actually support:
 When the two renderers differ, the same equation can appear in both forms in one turn — the form
 that renders in the message and the form that renders in the file.
 
+### Display math inside quoted foldable annotations
+
+Markdown previewers do not all apply blockquote parsing and math parsing in the same order. In a
+quoted `<details>` block, this otherwise-natural source is unsafe:
+
+```markdown
+> $$
+> x_{t+1}=Ax_t+Bu_t,
+> y_t=Cx_t.
+> $$
+```
+
+Some renderers pass the interior `>` markers to the TeX parser, producing literal `>` symbols,
+`>=`, or broken spacing in the rendered equation. Keep each complete display expression on **one
+physical source line** instead. Use an `aligned` environment when one display expression needs
+multiple visual rows:
+
+```markdown
+> $$\begin{aligned} x_{t+1} &= Ax_t+Bu_t, \\ y_t &= Cx_t. \end{aligned}$$
+```
+
+"One physical source line" means one Markdown line in the file; soft wrapping in an editor is fine.
+`aligned` groups multiple visual rows within one display expression. Multiple independent equations
+may each use their own complete one-line display, with quoted blank lines between displays.
+
+Reusable foldable template with math:
+
+```markdown
+> <details>
+> <summary>💡 扩展讨论：<支线主题></summary>
+>
+> <说明这部分来自论文、外部背景还是研究推论。>
+>
+> #### <小标题>
+>
+> $$\begin{aligned} q_t^{\mathrm{upper}} &= q_{\max}-r_t-m_t, \\ q_t^{\mathrm{lower}} &= q_{\min}+r_t+m_t. \end{aligned}$$
+>
+> <解释符号、适用条件与来源位置。>
+>
+> ⚠️ **来源边界**：<说明论文证据与工程推论的边界。>
+>
+> </details>
+```
+
+This pattern satisfies both requirements: every line in the fold remains blockquoted, while no
+blockquote marker can be mistaken for part of a multi-line TeX body.
+
 ## Diagrams
 
 A diagram earns its place when the content has structure a sentence can't carry: a taxonomy, a
@@ -150,7 +197,9 @@ alternative model family, implementation detail, cited-method background, or a r
 the reader wants to retain.
 
 Make the entire `<details>` block a Markdown blockquote. Prefix **every line**, including blank
-separator lines, with `>`:
+separator lines, with `>`. If the branch contains display equations, also follow the
+[single-source-line math pattern](#display-math-inside-quoted-foldable-annotations); do not split a
+`$$...$$` expression across several quoted source lines:
 
 ```markdown
 > <details>
