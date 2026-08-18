@@ -223,6 +223,12 @@ blank separator lines, with `>` so the entire branch is visually marked as comme
 > </details>
 ```
 
+When a quoted fold contains display math, use the renderer-safe pattern from
+[references/note-template.md](references/note-template.md): keep each complete `$$...$$` expression
+on **one physical source line**, and use `\begin{aligned} ... \\ ... \end{aligned}` for visual line
+breaks. Do not put the opening `$$`, TeX body, and closing `$$` on separate blockquoted lines; some
+Markdown-plus-math renderers leak the interior `>` quote markers into the formula.
+
 This is information architecture, not decoration. It lets notes remain rich without making a
 future reader re-walk every tangent to recover the paper's core argument. Keep the argument and
 any equations or evidence needed to reconstruct it at the agreed reading depth on the visible main

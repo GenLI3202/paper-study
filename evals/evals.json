@@ -73,8 +73,8 @@
     {
       "id": 4,
       "name": "quoted-foldable-tangent",
-      "prompt": "路线已经确认，我们正在读 evals/files/aggregation-paper.md §3。论文只说 distributed price coordination，没有提 ADMM。我想用 evals/files/admm-background.md 比较 ADMM，但那是支线。请给出要写进笔记的片段：论文主线保持可见，ADMM 背景放可折叠注释，并把路线表中的进度更新到准确位置。",
-      "expected_output": "Visible source-grounded main line, a fully blockquoted details annotation for ADMM, clear epistemic labels, and a single route-table Progress update without a duplicate tracker.",
+      "prompt": "路线已经确认，我们正在读 evals/files/aggregation-paper.md §3。论文只说 distributed price coordination，没有提 ADMM。我想用 evals/files/admm-background.md 比较 ADMM，但那是支线。请给出要写进笔记的可复制 Markdown 片段：论文主线保持可见，ADMM 背景放可折叠注释，并在该注释中用一个采用 `aligned` 环境的完整展示公式呈现两个视觉行，分别展示我们自己建议的聚合功率与备用符号（明确为实现或研究约定，不是论文原公式）。整个 details 块每行都要有引用符；该展示公式必须完整放在一个 Markdown 物理源代码行上，并在 VS Code Markdown 预览中正常渲染、不出现字面量 >。最后把路线表中的进度更新到准确位置。",
+      "expected_output": "Visible source-grounded main line, a fully blockquoted details annotation for ADMM containing renderer-safe two-row display math on one physical Markdown source line via an aligned environment, clear epistemic labels, and a single route-table Progress update without a duplicate tracker.",
       "files": [
         "evals/files/aggregation-paper.md",
         "evals/files/admm-background.md"
@@ -86,7 +86,11 @@
         "Labels paper content, external background, and research inference separately",
         "Uses evals/files/admm-background.md as the source for the ADMM branch",
         "Updates §3 Progress in the route table and does not create a separate progress block",
-        "Does not hide a source-boundary warning solely inside the fold"
+        "Does not hide a source-boundary warning solely inside the fold",
+        "Each complete display-math expression places its opening delimiter, TeX body, and closing delimiter on one physical source line",
+        "Uses an aligned environment with TeX row breaks to render the two equations on separate visual rows",
+        "Does not use the unsafe pattern with opening $$, quote-prefixed TeX body lines, and closing $$ on separate Markdown lines",
+        "Labels the aggregate-power and reserve notation as an implementation or research convention rather than attributing it to the synthetic paper"
       ]
     },
     {
