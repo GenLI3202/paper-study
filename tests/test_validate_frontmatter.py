@@ -184,6 +184,18 @@ class FrontmatterValidatorTestCase(unittest.TestCase):
 
         self.assert_error_contains(errors, "unsupported frontmatter key: extra")
 
+    def test_frontmatter_rejects_literal_block_scalars(self) -> None:
+        skill = self.root / "skill" / "paper-study" / "SKILL.md"
+        content = _skill_text().replace(
+            "description: >\n  Guides a careful, source-grounded academic paper study session.",
+            "description: |\n  Guides a careful, source-grounded academic paper study session.",
+        )
+        skill.write_text(content, encoding="utf-8")
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "unsupported YAML frontmatter")
+
     def test_frontmatter_rejects_malformed_plain_scalars(self) -> None:
         invalid_values = (
             "foo: bar",

@@ -127,6 +127,22 @@ class DependencyPolicyValidatorTestCase(unittest.TestCase):
 
         self.assertNotIn("dependency 'teach' must not be required", errors)
 
+    def test_not_only_required_dependency_wording_is_rejected(self) -> None:
+        skill = self.root / "skill" / "paper-study" / "SKILL.md"
+        skill.write_text(
+            _skill_text(
+                compatibility=(
+                    "Works standalone. The teach skill is optional but not only required; it "
+                    "is also recommended. The document-visual-enhancer skill is optional."
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "dependency 'teach' must not be required")
+
     def test_not_mandatory_dependency_wording_is_allowed(self) -> None:
         skill = self.root / "skill" / "paper-study" / "SKILL.md"
         skill.write_text(

@@ -159,7 +159,7 @@ def _parse_frontmatter_scalar(
     raw_value: str, line_number: int
 ) -> tuple[str, bool, list[str]]:
     value = raw_value.strip()
-    if value in {">", ">-", ">+", "|", "|-", "|+"}:
+    if value in {">", ">-", ">+"}:
         return "", True, []
     if not value:
         return "", False, []
@@ -571,6 +571,8 @@ def _normalized_policy_text(text: str) -> str:
 
 def _obligation_is_negated(text: str) -> bool:
     tail = text[-50:]
+    if re.search(r"\bnot\s+only(?:\s+\w+){0,2}\s*$", tail):
+        return False
     return bool(
         re.search(
             r"(?:\b(?:not|never)(?:\s+\w+){0,2}|\bno\s*$|\bno\s+longer|"
