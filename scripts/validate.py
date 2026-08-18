@@ -11,6 +11,13 @@ from urllib.parse import unquote
 
 SKILL_ROOT = Path("skill/paper-study")
 PACKAGE_MANIFEST = frozenset({"SKILL.md", "references/note-template.md"})
+REQUIRED_DIRECTORIES = (
+    Path("skill"),
+    SKILL_ROOT,
+    SKILL_ROOT / "references",
+    Path("evals"),
+    Path("evals/files"),
+)
 REQUIRED_FILES = (
     SKILL_ROOT / "SKILL.md",
     SKILL_ROOT / "references/note-template.md",
@@ -22,6 +29,9 @@ REQUIRED_EVAL_KEYS = frozenset(
 EVAL_STRING_FIELDS = ("name", "prompt", "expected_output")
 EVAL_LIST_FIELDS = ("files", "expectations")
 SUPPORTED_FRONTMATTER_KEYS = frozenset({"name", "description", "compatibility"})
+DESCRIPTION_MAX_LENGTH = 1024
+COMPATIBILITY_MAX_LENGTH = 500
+SUPPORTED_FIXTURE_SUFFIXES = frozenset({".md"})
 FORBIDDEN_PUBLICATION_TEXT = (
     "/" + "Users" + "/",
     "origin" + "SessionId",
@@ -31,7 +41,16 @@ TEXT_SUFFIXES = frozenset(
     {".csv", ".json", ".md", ".py", ".rst", ".toml", ".txt", ".yaml", ".yml"}
 )
 TEXT_FILENAMES = frozenset({".coveragerc", ".gitignore", "LICENSE"})
-EXCLUDED_PUBLICATION_DIRS = frozenset({".git", ".official-skills", "__pycache__", "dist"})
+EXCLUDED_PUBLICATION_ROOTS = frozenset(
+    {
+        Path(".git"),
+        Path(".official-skills"),
+        Path("dist"),
+        Path("paper-study-workspace"),
+        Path("skill/paper-study-workspace"),
+    }
+)
+EXCLUDED_PUBLICATION_COMPONENTS = frozenset({"__pycache__"})
 MARKDOWN_LINK = re.compile(r"!?\[[^\]\n]*\]\(([^)\n]+)\)")
 URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 WINDOWS_ABSOLUTE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
@@ -54,6 +73,27 @@ def _read_text(path: Path, root: Path) -> tuple[str | None, list[str]]:
     except (OSError, UnicodeError) as exc:
         display = _display_path(path, root)
         return None, [f"could not read {display} as UTF-8: {exc}"]
+
+
+def _validate_required_directories(root: Path) -> list[str]:
+    errors: list[str] = []
+    for relative in REQUIRED_DIRECTORIES:
+        path = root / relative
+        if path.is_symlink():
+            errors.append(f"required directory must not be a symlink: {relative.as_posix()}")
+            continue
+        try:
+            resolved = path.resolve()
+        except (OSError, RuntimeError, ValueError):
+            errors.append(f"required directory cannot be resolved: {relative.as_posix()}")
+            continue
+        if not _is_within(resolved, root):
+            errors.append(
+                f"required directory resolves outside repository: {relative.as_posix()}"
+            )
+        if not path.is_dir():
+            errors.append(f"required directory is missing: {relative.as_posix()}")
+    return errors
 
 
 def _validate_required_files(root: Path) -> list[str]:
@@ -134,8 +174,18 @@ def _parse_frontmatter_scalar(
                     f"unsupported YAML frontmatter at line {line_number}: quoted scalar"
                 ]
             return parsed, False, []
-        return value[1:-1].replace("''", "'"), False, []
-    if value[0] in "[{!&*" or " #" in value or YAML_IMPLICIT_NONSTRING.fullmatch(value):
+        inner = value[1:-1]
+        if "'" in inner.replace("''", ""):
+            return "", False, [
+                f"unsupported YAML frontmatter at line {line_number}: quoted scalar"
+            ]
+        return inner.replace("''", "'"), False, []
+    if (
+        value[0] in "[{]},!&*#-?@`%|>"
+        or " #" in value
+        or ": " in value
+        or YAML_IMPLICIT_NONSTRING.fullmatch(value)
+    ):
         return "", False, [f"unsupported YAML frontmatter at line {line_number}: scalar"]
     return value, False, []
 
@@ -151,6 +201,7 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str] | None, list[str]]:
 
     fields: dict[str, str] = {}
     block_key: str | None = None
+    block_adds_trailing_newline = False
     errors: list[str] = []
     for line_number, line in enumerate(lines[1:closing_index], start=2):
         if "\t" in line:
@@ -158,23 +209,45 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str] | None, list[str]]:
             continue
         match = FRONTMATTER_KEY.match(line)
         if match:
+            if block_key is not None and block_adds_trailing_newline:
+                fields[block_key] += "\n"
             key = match.group(1)
             if key not in SUPPORTED_FRONTMATTER_KEYS:
                 errors.append(f"unsupported frontmatter key: {key}")
             if key in fields:
                 errors.append(f"SKILL.md frontmatter repeats key {key!r}")
+            raw_value = match.group(2) or ""
             value, is_block, scalar_errors = _parse_frontmatter_scalar(
-                match.group(2) or "", line_number
+                raw_value, line_number
             )
             fields[key] = value
             block_key = key if is_block else None
+            block_adds_trailing_newline = is_block and not raw_value.strip().endswith("-")
             errors += scalar_errors
+        elif not line:
+            if block_key is not None:
+                errors.append(
+                    f"unsupported YAML frontmatter at line {line_number}: blank block line"
+                )
+        elif (
+            block_key is not None
+            and line.startswith("  ")
+            and len(line) > 2
+            and not line[2].isspace()
+        ):
+            content = line[2:]
+            separator = " " if fields[block_key] else ""
+            fields[block_key] += separator + content
+        elif line[:1].isspace() and block_key is not None:
+            errors.append(
+                f"unsupported YAML frontmatter at line {line_number}: block indentation"
+            )
         elif not line.strip():
             continue
-        elif line[:1].isspace() and block_key is not None:
-            fields[block_key] = " ".join((fields[block_key], line.strip())).strip()
         else:
             errors.append(f"unsupported YAML frontmatter at line {line_number}")
+    if block_key is not None and block_adds_trailing_newline:
+        fields[block_key] += "\n"
     return fields, errors
 
 
@@ -192,18 +265,42 @@ def _validate_frontmatter(root: Path) -> list[str]:
     result = errors + parse_errors
     if fields.get("name") != "paper-study":
         result.append("frontmatter name must be 'paper-study'")
-    description = fields.get("description", "").strip()
+    raw_description = fields.get("description", "")
+    description = raw_description.strip()
     if not description:
         result.append("frontmatter description must not be empty")
-    elif "<" in description or ">" in description:
+    elif len(raw_description) > DESCRIPTION_MAX_LENGTH:
+        result.append(
+            f"frontmatter description exceeds {DESCRIPTION_MAX_LENGTH} characters"
+        )
+    elif "<" in raw_description or ">" in raw_description:
         result.append("frontmatter description contains raw angle brackets")
     compatibility = fields.get("compatibility", "")
+    if len(compatibility) > COMPATIBILITY_MAX_LENGTH:
+        result.append(
+            f"frontmatter compatibility exceeds {COMPATIBILITY_MAX_LENGTH} characters"
+        )
+    normalized_compatibility = _normalized_policy_text(compatibility)
     negated_standalone = re.search(
-        r"\b(?:not|never)\b[^.!?;]{0,40}\bstandalone\b", compatibility, re.IGNORECASE
+        r"\b(?:cannot\s+(?:be\s+used|work|run)|does\s+not\s+(?:work|run)|"
+        r"never\s+(?:works?|runs?)|fails?\s+to\s+(?:work|run)|"
+        r"(?:is|are)\s+not)\s+standalone\b",
+        normalized_compatibility,
+    ) or re.search(
+        r"\bstandalone\b[^.!?;]{0,40}\b(?:is|are)\s+"
+        r"(?:not\s+supported|never\s+supported|unsupported|unavailable|impossible)\b",
+        normalized_compatibility,
+    ) or re.search(
+        r"\bworks\s+standalone\s*,?\s+only\s+(?:if|when)\b",
+        normalized_compatibility,
+    )
+    standalone_claim = re.search(
+        r"(?:^|[.!?;]\s*)(?:this\s+skill\s+)?works\s+standalone(?=$|[.!?;])",
+        normalized_compatibility,
     )
     if negated_standalone:
         result.append("frontmatter compatibility must not negate standalone")
-    elif not re.search(r"\bstandalone\b", compatibility, re.IGNORECASE):
+    elif not standalone_claim:
         result.append("frontmatter compatibility must say standalone")
     return result
 
@@ -307,6 +404,10 @@ def _validate_fixture_reference(
     if "\x00" in reference:
         return [f"eval {index} fixture path contains NUL"]
     reference_path = Path(reference)
+    if any(part in EXCLUDED_PUBLICATION_COMPONENTS for part in reference_path.parts):
+        return [f"eval {index} fixture must not use an excluded directory: {reference}"]
+    if reference_path.suffix.lower() not in SUPPORTED_FIXTURE_SUFFIXES:
+        return [f"eval {index} fixture must use a supported text format: {reference}"]
     if reference_path.is_absolute():
         return [f"eval {index} fixture must stay under evals/files: {reference}"]
     try:
@@ -322,27 +423,50 @@ def _validate_fixture_reference(
     return []
 
 
-def _is_safe_publication_file(path: Path, root: Path) -> bool:
-    if not path.is_file():
-        return False
-    try:
-        return _is_within(path.resolve(), root)
-    except (OSError, RuntimeError, ValueError):
-        return False
+def _is_excluded_publication_path(relative: Path) -> bool:
+    if any(part in EXCLUDED_PUBLICATION_COMPONENTS for part in relative.parts):
+        return True
+    return any(
+        relative == excluded or excluded in relative.parents
+        for excluded in EXCLUDED_PUBLICATION_ROOTS
+    )
 
 
-def _publication_files(root: Path) -> tuple[Path, ...]:
+def _is_excluded_publication_entry(relative: Path) -> bool:
+    return (
+        relative in EXCLUDED_PUBLICATION_ROOTS
+        or relative.name in EXCLUDED_PUBLICATION_COMPONENTS
+    )
+
+
+def _publication_files(root: Path) -> tuple[tuple[Path, ...], list[str]]:
     files: set[Path] = set()
+    errors: list[str] = []
     for path in root.rglob("*"):
         try:
             relative = path.relative_to(root)
         except ValueError:
             continue
-        if any(part in EXCLUDED_PUBLICATION_DIRS for part in relative.parts):
+        excluded = _is_excluded_publication_path(relative)
+        display = relative.as_posix()
+        if path.is_symlink():
+            if not excluded or _is_excluded_publication_entry(relative):
+                errors.append(f"publication path must not be a symlink: {display}")
             continue
-        if _is_safe_publication_file(path, root):
-            files.add(path)
-    return tuple(sorted(files))
+        if excluded:
+            continue
+        if not path.is_file():
+            continue
+        try:
+            resolved = path.resolve()
+        except (OSError, RuntimeError, ValueError):
+            errors.append(f"publication path cannot be resolved: {display}")
+            continue
+        if not _is_within(resolved, root):
+            errors.append(f"publication path resolves outside repository: {display}")
+            continue
+        files.add(path)
+    return tuple(sorted(files)), errors
 
 
 def _markdown_without_code(text: str) -> str:
@@ -431,7 +555,111 @@ def _validate_forbidden_text(root: Path, files: tuple[Path, ...]) -> list[str]:
 
 
 def _normalized_policy_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text.replace("`", " ")).lower()
+    contractions = {
+        "isn't": "is not",
+        "aren't": "are not",
+        "can't": "cannot",
+        "cannot": "cannot",
+        "doesn't": "does not",
+        "won't": "will not",
+    }
+    normalized = text.replace("’", "'").replace("`", " ").lower()
+    for contraction, expansion in contractions.items():
+        normalized = normalized.replace(contraction, expansion)
+    return re.sub(r"\s+", " ", normalized)
+
+
+def _obligation_is_negated(text: str) -> bool:
+    tail = text[-50:]
+    return bool(
+        re.search(
+            r"(?:\b(?:not|never)(?:\s+\w+){0,2}|\bno\s*$|\bno\s+longer|"
+            r"\bby\s+no\s+means|\brather\s+than|"
+            r"\bas\s+opposed\s+to(?:\s+an?)?)\s*$",
+            tail,
+        )
+    )
+
+
+def _dependency_is_required(text: str, dependency: str) -> bool:
+    normalized = _normalized_policy_text(text)
+    escaped = re.escape(dependency.lower())
+    clause = r"[^.!?;]{0,120}"
+    dependency_reference = rf"(?:the\s+)?{escaped}(?:\s+skill)?"
+    negative_capability = r"(?:cannot|does\s+not|will\s+not|fails?\s+to)"
+    capability_verb = r"(?:run|work|function|operate)"
+    if re.search(
+        rf"\bwithout\s+{dependency_reference}\b{clause}\b"
+        rf"{negative_capability}\s+{capability_verb}\b",
+        normalized,
+    ) or re.search(
+        rf"\b{negative_capability}\s+{capability_verb}\b{clause}\bwithout\s+"
+        rf"{dependency_reference}\b",
+        normalized,
+    ):
+        return True
+    for match in re.finditer(
+        rf"\b{escaped}\b(?P<middle>{clause})\brequired\b", normalized
+    ):
+        sentence_start = max(
+            normalized.rfind(separator, 0, match.start()) for separator in ".!?;"
+        )
+        prefix = normalized[sentence_start + 1 : match.start()][-50:]
+        before_required = match.group("middle")[-50:]
+        if not (
+            _obligation_is_negated(prefix)
+            or _obligation_is_negated(before_required)
+        ):
+            return True
+    for match in re.finditer(
+        rf"\brequired\b{clause}\b{escaped}\b", normalized
+    ):
+        sentence_start = max(
+            normalized.rfind(separator, 0, match.start()) for separator in ".!?;"
+        )
+        prefix = normalized[sentence_start + 1 : match.start()][-50:]
+        if not _obligation_is_negated(prefix):
+            return True
+    for match in re.finditer(
+        rf"\brequires?\b{clause}\b{escaped}\b", normalized
+    ):
+        sentence_start = max(
+            normalized.rfind(separator, 0, match.start()) for separator in ".!?;"
+        )
+        prefix = normalized[sentence_start + 1 : match.start()][-40:]
+        negated = re.search(
+            r"\b(?:(?:do|does|did|will|would|should|must)\s+not|never|no longer)\s*$",
+            prefix,
+        )
+        if not negated:
+            return True
+    obligation_patterns = (
+        rf"\b{escaped}\b{clause}\bmust\b(?P<polarity>[^.!?;]{{0,40}})"
+        r"\b(?:installed|enabled|available|present|used)\b",
+        rf"\bmust\b(?P<polarity>[^.!?;]{{0,40}})"
+        rf"\b(?:install|enable|provide|use)\b[^.!?;]{{0,40}}\b{escaped}\b",
+        rf"\b{escaped}\b(?P<polarity>{clause})\b(?:mandatory|necessary)\b",
+        rf"\b{escaped}\b(?P<polarity>{clause})\b(?:prerequisite|requirement)\b",
+        rf"\b{escaped}\b(?P<polarity>{clause})\b(?:has|have)\s+to\s+be\s+"
+        r"(?:installed|enabled|available|present|used)\b",
+        rf"\b(?:users?|you)\b(?P<polarity>{clause})\b(?:has|have)\s+to\s+"
+        rf"(?:install|enable|provide|use)\b[^.!?;]{{0,40}}\b{escaped}\b",
+    )
+    for pattern in obligation_patterns:
+        for match in re.finditer(pattern, normalized):
+            polarity = match.group("polarity")[-50:]
+            if not _obligation_is_negated(polarity):
+                return True
+    for match in re.finditer(rf"\bneeds?\b{clause}\b{escaped}\b", normalized):
+        sentence_start = max(
+            normalized.rfind(separator, 0, match.start()) for separator in ".!?;"
+        )
+        prefix = normalized[sentence_start + 1 : match.start()][-40:]
+        if not re.search(
+            r"\b(?:(?:do|does|did)\s+not|never|no longer)\s*$", prefix
+        ):
+            return True
+    return False
 
 
 def _dependency_negates_optionality(text: str, dependency: str) -> bool:
@@ -439,8 +667,14 @@ def _dependency_negates_optionality(text: str, dependency: str) -> bool:
     escaped = re.escape(dependency.lower())
     clause = r"[^.!?;]{0,120}"
     return bool(
-        re.search(rf"\b{escaped}\b{clause}\b(?:not|never)\s+optional\b", normalized)
-        or re.search(rf"\b(?:not|never)\s+optional\b{clause}\b{escaped}\b", normalized)
+        re.search(
+            rf"\b{escaped}\b{clause}\b(?:not|never|no\s+longer)\s+optional\b",
+            normalized,
+        )
+        or re.search(
+            rf"\b(?:not|never|no\s+longer)\s+optional\b{clause}\b{escaped}\b",
+            normalized,
+        )
     )
 
 
@@ -470,9 +704,13 @@ def _validate_optional_dependencies(root: Path, files: tuple[Path, ...]) -> list
             texts.append(text)
     combined = "\n".join(texts)
     for dependency in OPTIONAL_DEPENDENCIES:
+        required = _dependency_is_required(combined, dependency)
+        conditional = _dependency_is_conditional(combined, dependency)
+        if required:
+            errors.append(f"dependency {dependency!r} must not be required")
         if _dependency_negates_optionality(combined, dependency):
             errors.append(f"dependency {dependency!r} must not negate optionality")
-        elif not _dependency_is_conditional(combined, dependency):
+        elif not conditional:
             errors.append(
                 f"dependency {dependency!r} must be described as optional or conditional"
             )
@@ -484,7 +722,8 @@ def validate_repository(repo_root: str | Path) -> list[str]:
     if not root.is_dir():
         return [f"repository root is not a directory: {root}"]
 
-    errors = _validate_required_files(root)
+    errors = _validate_required_directories(root)
+    errors += _validate_required_files(root)
     errors += _validate_package_allowlist(root)
     errors += _validate_frontmatter(root)
     payload, eval_errors = _load_eval_document(root)
@@ -492,7 +731,8 @@ def validate_repository(repo_root: str | Path) -> list[str]:
     if payload is not None:
         errors += _validate_eval_objects(payload)
         errors += _validate_eval_fixtures(root, payload)
-    publication_files = _publication_files(root)
+    publication_files, publication_errors = _publication_files(root)
+    errors += publication_errors
     errors += _validate_markdown_links(root, publication_files)
     errors += _validate_forbidden_text(root, publication_files)
     errors += _validate_optional_dependencies(root, publication_files)

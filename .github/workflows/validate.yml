@@ -50,7 +50,7 @@ jobs:
               closing = lines.index("---", 1)
           except ValueError as exc:
               raise SystemExit("SKILL.md frontmatter is not closed") from exc
-          metadata = yaml.safe_load("\n".join(lines[1:closing]))
+          metadata = yaml.safe_load("\n".join(lines[1:closing]) + "\n")
           if not isinstance(metadata, dict):
               raise SystemExit("SKILL.md frontmatter must be a mapping")
           if set(metadata) != {"name", "description", "compatibility"}:
@@ -64,13 +64,16 @@ jobs:
                   raise SystemExit(f"{key} must be a nonempty string")
           if len(metadata["description"]) > 1024:
               raise SystemExit("description exceeds the official 1024-character limit")
+          if len(metadata["compatibility"]) > 500:
+              raise SystemExit("compatibility exceeds the official 500-character limit")
           print("PyYAML frontmatter validation passed")
           PY
 
       - name: Build and inspect exact release archive
         run: |
           python - <<'PY'
-          import os
+          import hashlib
+          import stat
           import zipfile
           from pathlib import Path
 
@@ -87,22 +90,50 @@ jobs:
           if actual_sources != expected_sources:
               raise SystemExit(f"Unexpected package sources: {sorted(actual_sources)}")
 
-          archive = Path(os.environ["RUNNER_TEMP"]) / "paper-study.skill"
+          output = Path("dist")
+          output.mkdir(exist_ok=True)
+          archive = output / "paper-study.skill"
           with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as package:
               for relative in sorted(expected_sources):
-                  package.write(source / relative, f"paper-study/{relative}")
+                  archive_path = f"paper-study/{relative}"
+                  info = zipfile.ZipInfo(archive_path, date_time=(2026, 1, 1, 0, 0, 0))
+                  info.compress_type = zipfile.ZIP_DEFLATED
+                  info.external_attr = (stat.S_IFREG | 0o644) << 16
+                  package.writestr(info, (source / relative).read_bytes())
           expected_archive = [
               "paper-study/SKILL.md",
               "paper-study/references/note-template.md",
           ]
           with zipfile.ZipFile(archive) as package:
-              names = sorted(package.namelist())
+              infos = package.infolist()
+              names = sorted(info.filename for info in infos)
               bad_paths = [
                   name
                   for name in names
                   if Path(name).is_absolute() or ".." in Path(name).parts
               ]
-          if names != expected_archive or bad_paths:
+              non_files = [
+                  info.filename
+                  for info in infos
+                  if not stat.S_ISREG(info.external_attr >> 16)
+              ]
+          if names != expected_archive or bad_paths or non_files:
               raise SystemExit(f"Unexpected archive manifest: {names!r}")
+
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          checksum = output / "SHA256SUMS"
+          checksum.write_text(f"{digest}  paper-study.skill\n", encoding="ascii")
           print("Archive manifest is exact:", names)
+          print("SHA-256:", digest)
           PY
+
+      - name: Upload verified release assets
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-study-${{ github.sha }}
+          path: |
+            dist/paper-study.skill
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30

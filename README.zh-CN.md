@@ -46,45 +46,107 @@ cp -R /path/to/paper-study/skill/paper-study .claude/skills/
 [v0.1.0 Release](https://github.com/GenLI3202/paper-study/releases/tag/v0.1.0) 提供技能包及其校验和。以下用户级安装使用私有临时目录，校验 SHA-256 与严格的双文件归档清单，并通过同一文件系统内的重命名替换已有版本；失败时会回滚：
 
 ```bash
-SKILLS_DIR="$HOME/.claude/skills" # 若安装到项目，请使用：SKILLS_DIR=".claude/skills"
-mkdir -p "$SKILLS_DIR"
-DOWNLOAD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/paper-study-download.XXXXXX")"
-STAGE_DIR="$(mktemp -d "$SKILLS_DIR/.paper-study-install.XXXXXX")"
-BACKUP=""
-cleanup() {
-  rm -rf "$DOWNLOAD_DIR" "$STAGE_DIR"
-  if [ -n "$BACKUP" ] && [ -e "$BACKUP" ]; then rm -rf "$BACKUP"; fi
-}
-trap cleanup EXIT
+(
+  set -euo pipefail
 
-curl --fail --location \
-  https://github.com/GenLI3202/paper-study/releases/download/v0.1.0/paper-study.skill \
-  --output "$DOWNLOAD_DIR/paper-study.skill"
-curl --fail --location \
-  https://github.com/GenLI3202/paper-study/releases/download/v0.1.0/SHA256SUMS \
-  --output "$DOWNLOAD_DIR/SHA256SUMS"
-( cd "$DOWNLOAD_DIR" && shasum -a 256 -c SHA256SUMS )
+  SKILLS_DIR="${SKILLS_DIR:-$HOME/.claude/skills}" # 项目级示例：SKILLS_DIR=".claude/skills"
+  mkdir -p "$SKILLS_DIR"
+  SKILLS_DIR="$(cd "$SKILLS_DIR" && pwd -P)"
+  DOWNLOAD_DIR=""
+  STAGE_DIR=""
+  BACKUP=""
 
-EXPECTED_MANIFEST="$(printf '%s\n' \
-  'paper-study/SKILL.md' \
-  'paper-study/references/note-template.md')"
-ACTUAL_MANIFEST="$(unzip -Z1 "$DOWNLOAD_DIR/paper-study.skill" | grep -v '/$' | LC_ALL=C sort)"
-if [ "$ACTUAL_MANIFEST" != "$EXPECTED_MANIFEST" ]; then
-  printf 'Unexpected package contents; installation stopped.\n' >&2
-  exit 1
-fi
-unzip -q "$DOWNLOAD_DIR/paper-study.skill" -d "$STAGE_DIR"
+  cleanup() {
+    exit_status=$?
+    set +e
+    [ -z "$DOWNLOAD_DIR" ] || rm -rf "$DOWNLOAD_DIR"
+    [ -z "$STAGE_DIR" ] || rm -rf "$STAGE_DIR"
+    if [ "$exit_status" -ne 0 ] && [ -n "$BACKUP" ] && \
+       { [ -e "$BACKUP" ] || [ -L "$BACKUP" ]; }; then
+      if [ ! -e "$SKILLS_DIR/paper-study" ] && \
+         [ ! -L "$SKILLS_DIR/paper-study" ] && \
+         mv "$BACKUP" "$SKILLS_DIR/paper-study"; then
+        BACKUP=""
+        printf 'Installation failed; the previous version was restored.\n' >&2
+      fi
+    fi
+    if [ "$exit_status" -eq 0 ] && [ -n "$BACKUP" ] && \
+       { [ -e "$BACKUP" ] || [ -L "$BACKUP" ]; }; then
+      if rm -rf "$BACKUP"; then
+        BACKUP=""
+      else
+        exit_status=1
+        printf 'Installation succeeded, but backup cleanup failed at %s\n' "$BACKUP" >&2
+      fi
+    elif [ -n "$BACKUP" ] && \
+         { [ -e "$BACKUP" ] || [ -L "$BACKUP" ]; }; then
+      printf 'Installation failed; backup retained at %s\n' "$BACKUP" >&2
+    fi
+    trap - EXIT
+    exit "$exit_status"
+  }
+  trap cleanup EXIT
 
-if [ -e "$SKILLS_DIR/paper-study" ]; then
-  BACKUP="$(mktemp -d "$SKILLS_DIR/.paper-study-backup.XXXXXX")"
-  rmdir "$BACKUP"
-  mv "$SKILLS_DIR/paper-study" "$BACKUP"
-fi
-if ! mv "$STAGE_DIR/paper-study" "$SKILLS_DIR/paper-study"; then
-  if [ -n "$BACKUP" ]; then mv "$BACKUP" "$SKILLS_DIR/paper-study"; fi
-  exit 1
-fi
-if [ -n "$BACKUP" ]; then rm -rf "$BACKUP"; BACKUP=""; fi
+  DOWNLOAD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/paper-study-download.XXXXXX")"
+  STAGE_DIR="$(mktemp -d "$SKILLS_DIR/.paper-study-install.XXXXXX")"
+
+  curl --fail --location \
+    https://github.com/GenLI3202/paper-study/releases/download/v0.1.0/paper-study.skill \
+    --output "$DOWNLOAD_DIR/paper-study.skill"
+  curl --fail --location \
+    https://github.com/GenLI3202/paper-study/releases/download/v0.1.0/SHA256SUMS \
+    --output "$DOWNLOAD_DIR/SHA256SUMS"
+  python3 - \
+    "$DOWNLOAD_DIR/paper-study.skill" \
+    "$DOWNLOAD_DIR/SHA256SUMS" \
+    "$STAGE_DIR" <<'PY'
+import hashlib
+import hmac
+import re
+import stat
+import sys
+import zipfile
+from pathlib import Path
+
+archive = Path(sys.argv[1])
+checksum_file = Path(sys.argv[2])
+stage = Path(sys.argv[3])
+checksum_text = checksum_file.read_text(encoding="ascii")
+checksum_match = re.fullmatch(r"([0-9a-f]{64})  paper-study\.skill\n", checksum_text)
+archive_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+if checksum_match is None or not hmac.compare_digest(
+    checksum_match.group(1), archive_digest
+):
+    raise SystemExit("Checksum verification failed; installation stopped.")
+expected = [
+    "paper-study/SKILL.md",
+    "paper-study/references/note-template.md",
+]
+with zipfile.ZipFile(archive) as package:
+    infos = package.infolist()
+    names = sorted(info.filename for info in infos)
+    unsafe = [
+        info.filename
+        for info in infos
+        if Path(info.filename).is_absolute()
+        or ".." in Path(info.filename).parts
+        or not stat.S_ISREG(info.external_attr >> 16)
+    ]
+    if names != expected or unsafe:
+        raise SystemExit("Unexpected or unsafe package contents; installation stopped.")
+    for info in infos:
+        target = stage / info.filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(package.read(info))
+PY
+
+  if [ -e "$SKILLS_DIR/paper-study" ] || [ -L "$SKILLS_DIR/paper-study" ]; then
+    BACKUP="$(mktemp -d "$SKILLS_DIR/.paper-study-backup.XXXXXX")"
+    rmdir "$BACKUP"
+    mv "$SKILLS_DIR/paper-study" "$BACKUP"
+  fi
+  mv "$STAGE_DIR/paper-study" "$SKILLS_DIR/paper-study"
+)
 ```
 
 ## 调用示例
@@ -151,7 +213,9 @@ Continue where we stopped in learning/aggregation-notes.md. Read the paper's act
 ├── scripts/
 │   └── validate.py
 └── tests/
-    └── test_validate.py
+    ├── test_validate.py
+    ├── test_validate_dependencies.py
+    └── test_validate_frontmatter.py
 ```
 
 ## 本地验证、评测、覆盖率与打包
@@ -179,6 +243,8 @@ unzip -l "$REPO_ROOT/dist/paper-study.skill"
 ```
 
 `package_skill` 会先验证，再创建 `dist/paper-study.skill`；该文件兼容 ZIP 格式，内部包含顶层 `paper-study/` 技能目录。
+
+每次成功推送到 `main` 后，CI 会上传一个保留 30 天的暂存产物，名称为 `paper-study-<完整提交 SHA>`，其中包含 `paper-study.skill` 和 `SHA256SUMS`。该工作流产物**不是** GitHub Release，也不能替代文档中的 Release 下载地址。发布 `v0.1.0` 时，维护者必须选择 head SHA 与 `v0.1.0` 标签目标提交完全一致且成功的 `main` 工作流，下载该提交绑定产物，验证 `SHA256SUMS`，再把两个文件原样附加到 GitHub Release。验证工作流不会自动创建标签或发布 Release 资产。
 
 ## 隐私
 

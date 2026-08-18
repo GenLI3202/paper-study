@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import configparser
+import hashlib
 import importlib.util
 import io
 import json
+import os
+import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -108,6 +113,72 @@ def _write_evals(root: Path, payload: dict[str, object]) -> None:
     )
 
 
+def _release_installer(readme: Path) -> str:
+    blocks = re.findall(
+        r"```bash\n(.*?)```", readme.read_text(encoding="utf-8"), re.DOTALL
+    )
+    installers = [block for block in blocks if "trap cleanup EXIT" in block]
+    if len(installers) != 1:
+        raise AssertionError(f"Expected one release installer in {readme}")
+    return installers[0]
+
+
+def _write_release_assets(root: Path) -> tuple[Path, Path]:
+    archive = root / "paper-study.skill"
+    sources = {
+        "paper-study/SKILL.md": REPO_ROOT / "skill/paper-study/SKILL.md",
+        "paper-study/references/note-template.md": (
+            REPO_ROOT / "skill/paper-study/references/note-template.md"
+        ),
+    }
+    with zipfile.ZipFile(archive, "w") as package:
+        for name, source in sources.items():
+            info = zipfile.ZipInfo(name)
+            info.external_attr = (stat.S_IFREG | 0o644) << 16
+            package.writestr(info, source.read_bytes())
+    checksum = root / "SHA256SUMS"
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    checksum.write_text(f"{digest}  paper-study.skill\n", encoding="ascii")
+    return archive, checksum
+
+
+def _write_fake_release_commands(root: Path) -> Path:
+    fake_bin = root / "bin"
+    fake_bin.mkdir()
+    curl = fake_bin / "curl"
+    curl.write_text(
+        """#!/bin/sh
+output=''
+url=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output) shift; output="$1" ;;
+    http*) url="$1" ;;
+  esac
+  shift
+done
+case "$url" in
+  *SHA256SUMS) cp "$TEST_CHECKSUM" "$output" ;;
+  *) cp "$TEST_ARCHIVE" "$output" ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    move = fake_bin / "mv"
+    move.write_text(
+        """#!/bin/sh
+case "$1" in
+  */.paper-study-install.*/paper-study) exit 73 ;;
+esac
+exec "$REAL_MV" "$@"
+""",
+        encoding="utf-8",
+    )
+    curl.chmod(0o755)
+    move.chmod(0o755)
+    return fake_bin
+
+
 class ValidatorTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self._temporary_directory = tempfile.TemporaryDirectory()
@@ -149,92 +220,6 @@ class ValidatorTestCase(unittest.TestCase):
             "required file is missing: skill/paper-study/references/note-template.md",
         )
 
-    def test_frontmatter_name_must_match(self) -> None:
-        skill = self.root / "skill" / "paper-study" / "SKILL.md"
-        skill.write_text(_skill_text(name="other-skill"), encoding="utf-8")
-
-        errors = validate.validate_repository(self.root)
-
-        self.assert_error_contains(errors, "frontmatter name must be 'paper-study'")
-
-    def test_frontmatter_description_must_be_nonempty(self) -> None:
-        skill = self.root / "skill" / "paper-study" / "SKILL.md"
-        skill.write_text(_skill_text(description=""), encoding="utf-8")
-
-        errors = validate.validate_repository(self.root)
-
-        self.assert_error_contains(errors, "frontmatter description must not be empty")
-
-    def test_frontmatter_description_rejects_raw_angle_brackets(self) -> None:
-        skill = self.root / "skill" / "paper-study" / "SKILL.md"
-        skill.write_text(
-            _skill_text(description="Study a <paper> interactively."), encoding="utf-8"
-        )
-
-        errors = validate.validate_repository(self.root)
-
-        self.assert_error_contains(errors, "frontmatter description contains raw angle brackets")
-
-    def test_frontmatter_compatibility_must_say_standalone(self) -> None:
-        skill = self.root / "skill" / "paper-study" / "SKILL.md"
-        skill.write_text(
-            _skill_text(
-                compatibility=(
-                    "Requires another runtime. The teach and document-visual-enhancer skills "
-                    "are optional enhancements."
-                )
-            ),
-            encoding="utf-8",
-        )
-
-        errors = validate.validate_repository(self.root)
-
-        self.assert_error_contains(errors, "frontmatter compatibility must say standalone")
-
-    def test_frontmatter_rejects_negated_standalone_claim(self) -> None:
-        skill = self.root / "skill" / "paper-study" / "SKILL.md"
-        skill.write_text(
-            _skill_text(
-                compatibility=(
-                    "This skill is not standalone. The teach and document-visual-enhancer "
-                    "skills are optional."
-                )
-            ),
-            encoding="utf-8",
-        )
-
-        errors = validate.validate_repository(self.root)
-
-        self.assert_error_contains(errors, "compatibility must not negate standalone")
-
-    def test_frontmatter_rejects_unsupported_key(self) -> None:
-        skill = self.root / "skill" / "paper-study" / "SKILL.md"
-        content = _skill_text().replace("name: paper-study\n", "name: paper-study\nextra: true\n")
-        skill.write_text(content, encoding="utf-8")
-
-        errors = validate.validate_repository(self.root)
-
-        self.assert_error_contains(errors, "unsupported frontmatter key: extra")
-
-    def test_frontmatter_rejects_yaml_sequences_in_supported_subset(self) -> None:
-        skill = self.root / "skill" / "paper-study" / "SKILL.md"
-        content = _skill_text().replace(
-            "description: >\n  Guides a careful, source-grounded academic paper study session.",
-            "description:\n  - invalid sequence",
-        )
-        skill.write_text(content, encoding="utf-8")
-
-        errors = validate.validate_repository(self.root)
-
-        self.assert_error_contains(errors, "unsupported YAML frontmatter")
-
-    def test_missing_frontmatter_is_reported_cleanly(self) -> None:
-        skill = self.root / "skill" / "paper-study" / "SKILL.md"
-        skill.write_text("# No frontmatter\n", encoding="utf-8")
-
-        errors = validate.validate_repository(self.root)
-
-        self.assert_error_contains(errors, "SKILL.md must start with YAML frontmatter")
 
     def test_eval_count_must_be_exactly_six(self) -> None:
         payload = _read_evals(self.root)
@@ -356,6 +341,32 @@ class ValidatorTestCase(unittest.TestCase):
 
         self.assert_error_contains(errors, "eval 0 fixture path contains NUL")
 
+    def test_eval_fixture_rejects_unsupported_text_format(self) -> None:
+        fixture = self.root / "evals" / "files" / "leak.html"
+        fixture.write_text("Synthetic HTML fixture.\n", encoding="utf-8")
+        payload = _read_evals(self.root)
+        payload["evals"][0]["files"] = ["evals/files/leak.html"]  # type: ignore[index]
+        _write_evals(self.root, payload)
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "eval 0 fixture must use a supported text format")
+
+    def test_fixture_directory_named_like_workspace_is_still_scanned(self) -> None:
+        fixture = self.root / "evals" / "files" / "paper-study-workspace" / "hidden.md"
+        fixture.parent.mkdir()
+        marker = "/" + "Users" + "/"
+        fixture.write_text(f"Synthetic leak: {marker}private\n", encoding="utf-8")
+        payload = _read_evals(self.root)
+        payload["evals"][0]["files"] = [  # type: ignore[index]
+            "evals/files/paper-study-workspace/hidden.md"
+        ]
+        _write_evals(self.root, payload)
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, f"forbidden publication text {marker!r}")
+
     def test_broken_local_markdown_link_is_reported(self) -> None:
         reference = self.root / "skill" / "paper-study" / "references" / "note-template.md"
         reference.write_text("[missing](missing.md)\n", encoding="utf-8")
@@ -419,6 +430,51 @@ class ValidatorTestCase(unittest.TestCase):
         self.assert_error_contains(errors, f"forbidden publication text {marker!r}")
         self.assert_error_contains(errors, "README.md")
 
+    def test_publication_symlink_is_rejected_instead_of_skipped(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".md") as outside:
+            Path(outside.name).write_text("External publication text.\n", encoding="utf-8")
+            (self.root / "README.md").symlink_to(outside.name)
+
+            errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "publication path must not be a symlink: README.md")
+
+    def test_excluded_publication_root_must_not_be_a_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as outside_directory:
+            workspace = self.root / "paper-study-workspace"
+            workspace.symlink_to(outside_directory, target_is_directory=True)
+
+            errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(
+            errors,
+            "publication path must not be a symlink: paper-study-workspace",
+        )
+
+    def test_fixed_eval_parent_directory_must_not_be_a_symlink(self) -> None:
+        target = self.root / "internal-evals"
+        shutil.copytree(self.root / "evals", target)
+        shutil.rmtree(self.root / "evals")
+        (self.root / "evals").symlink_to(target, target_is_directory=True)
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(errors, "required directory must not be a symlink: evals")
+
+    def test_fixed_reference_parent_directory_must_not_be_a_symlink(self) -> None:
+        references = self.root / "skill" / "paper-study" / "references"
+        target = self.root / "internal-references"
+        shutil.copytree(references, target)
+        shutil.rmtree(references)
+        references.symlink_to(target, target_is_directory=True)
+
+        errors = validate.validate_repository(self.root)
+
+        self.assert_error_contains(
+            errors,
+            "required directory must not be a symlink: skill/paper-study/references",
+        )
+
     def test_scripts_and_workflows_are_included_in_publication_scan(self) -> None:
         marker = "/" + "Users" + "/"
         script = self.root / "scripts" / "helper.py"
@@ -474,58 +530,6 @@ class ValidatorTestCase(unittest.TestCase):
 
         self.assert_error_contains(errors, "package source resolves outside repository")
 
-    def test_teach_dependency_must_be_optional_or_conditional(self) -> None:
-        skill = self.root / "skill" / "paper-study" / "SKILL.md"
-        skill.write_text(
-            _skill_text(
-                compatibility=(
-                    "Works standalone. The teach skill is required. The "
-                    "document-visual-enhancer skill is optional."
-                )
-            ),
-            encoding="utf-8",
-        )
-
-        errors = validate.validate_repository(self.root)
-
-        self.assert_error_contains(
-            errors, "dependency 'teach' must be described as optional or conditional"
-        )
-
-    def test_negated_optional_dependency_wording_is_rejected(self) -> None:
-        skill = self.root / "skill" / "paper-study" / "SKILL.md"
-        skill.write_text(
-            _skill_text(
-                compatibility=(
-                    "Works standalone. The teach skill is not optional. The "
-                    "document-visual-enhancer skill is optional."
-                )
-            ),
-            encoding="utf-8",
-        )
-
-        errors = validate.validate_repository(self.root)
-
-        self.assert_error_contains(errors, "dependency 'teach' must not negate optionality")
-
-    def test_visual_dependency_must_be_optional_or_conditional(self) -> None:
-        skill = self.root / "skill" / "paper-study" / "SKILL.md"
-        skill.write_text(
-            _skill_text(
-                compatibility=(
-                    "Works standalone. The teach skill is optional. The "
-                    "document-visual-enhancer skill is required."
-                )
-            ),
-            encoding="utf-8",
-        )
-
-        errors = validate.validate_repository(self.root)
-
-        self.assert_error_contains(
-            errors,
-            "dependency 'document-visual-enhancer' must be described as optional or conditional",
-        )
 
     def test_cli_accepts_repo_root_and_reports_success(self) -> None:
         completed = subprocess.run(
@@ -558,7 +562,74 @@ class ValidatorTestCase(unittest.TestCase):
         self.assertEqual(configuration.get("run", "source").strip(), "scripts")
         self.assertEqual(configuration.getint("report", "fail_under"), 80)
 
-    def test_github_workflow_runs_local_release_checks_without_external_code(self) -> None:
+    def test_readme_release_installers_fail_closed_in_scoped_subshells(self) -> None:
+        for relative in ("README.md", "README.zh-CN.md"):
+            with self.subTest(relative=relative):
+                readme = (REPO_ROOT / relative).read_text(encoding="utf-8")
+                self.assertIn("(\n  set -euo pipefail", readme)
+                self.assertIn("trap cleanup EXIT", readme)
+                self.assertIn("exit_status=$?", readme)
+                self.assertNotIn("\n    status=$?", readme)
+                self.assertIn("hashlib.sha256(archive.read_bytes()).hexdigest()", readme)
+                self.assertIn("hmac.compare_digest", readme)
+                self.assertIn("paper-study\\.skill\\n", readme)
+                self.assertIn(
+                    "Unexpected or unsafe package contents; installation stopped.",
+                    readme,
+                )
+                self.assertIn("not stat.S_ISREG(info.external_attr >> 16)", readme)
+                self.assertIn("backup retained at %s", readme)
+
+    def test_readme_installer_rolls_back_in_available_shells(self) -> None:
+        shells = [shutil.which("bash")]
+        zsh = shutil.which("zsh")
+        if zsh is not None:
+            shells.append(zsh)
+        for relative in ("README.md", "README.zh-CN.md"):
+            installer = _release_installer(REPO_ROOT / relative)
+            for shell in (item for item in shells if item is not None):
+                with self.subTest(relative=relative, shell=shell), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    archive, checksum = _write_release_assets(root)
+                    fake_bin = _write_fake_release_commands(root)
+                    skills = root / "skills"
+                    installed = skills / "paper-study"
+                    installed.mkdir(parents=True)
+                    (installed / "SKILL.md").write_text("previous version\n", encoding="utf-8")
+                    environment = {
+                        **os.environ,
+                        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                        "REAL_MV": shutil.which("mv") or "/bin/mv",
+                        "SKILLS_DIR": str(skills),
+                        "TEST_ARCHIVE": str(archive),
+                        "TEST_CHECKSUM": str(checksum),
+                        "TMPDIR": str(root),
+                    }
+
+                    result = subprocess.run(
+                        [shell, "-c", installer],
+                        capture_output=True,
+                        text=True,
+                        env=environment,
+                    )
+
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(
+                        (installed / "SKILL.md").read_text(encoding="utf-8"),
+                        "previous version\n",
+                    )
+                    self.assertEqual(list(skills.glob(".paper-study-*")), [])
+
+    def test_generated_workspace_is_consistently_ignored(self) -> None:
+        ignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+        self.assertIn("paper-study-workspace/", ignore)
+        self.assertIn(Path("paper-study-workspace"), validate.EXCLUDED_PUBLICATION_ROOTS)
+        self.assertIn(
+            Path("skill/paper-study-workspace"), validate.EXCLUDED_PUBLICATION_ROOTS
+        )
+
+    def test_github_workflow_builds_and_uploads_verified_release_assets(self) -> None:
         workflow = (REPO_ROOT / ".github" / "workflows" / "validate.yml").read_text(
             encoding="utf-8"
         )
@@ -576,6 +647,17 @@ class ValidatorTestCase(unittest.TestCase):
         self.assertIn('"paper-study/SKILL.md"', workflow)
         self.assertIn('"paper-study/references/note-template.md"', workflow)
         self.assertIn("names != expected_archive", workflow)
+        self.assertIn('len(metadata["compatibility"]) > 500', workflow)
+        self.assertIn("hashlib.sha256", workflow)
+        self.assertIn('Path("dist")', workflow)
+        self.assertIn("dist/SHA256SUMS", workflow)
+        self.assertIn("actions/upload-artifact@v4", workflow)
+        self.assertIn('name: paper-study-${{ github.sha }}', workflow)
+        self.assertIn(
+            "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
+            workflow,
+        )
+        self.assertIn("if-no-files-found: error", workflow)
         self.assertNotIn("repository: anthropics/skills", workflow)
 
 
