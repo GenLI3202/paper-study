@@ -12,8 +12,9 @@ description: >
   than receive a digest, this is the skill. Do NOT use it for one-shot summarization, abstract
   extraction, citation formatting, or writing a literature review from papers already read.
 compatibility: >
-  Requires file or PDF reading and filesystem write tools. Git is optional. Works standalone;
-  the teach and document-visual-enhancer skills can enhance tutoring or diagram-heavy sessions.
+  Requires file or PDF reading and filesystem write tools. Works standalone. Persistent memory and
+  Git are optional host capabilities; optional skills such as teach and document-visual-enhancer can
+  enhance tutoring or diagram-heavy sessions.
 ---
 
 # Paper Study
@@ -25,6 +26,16 @@ The output is two things at once — a learner who understands the section, and 
 is *better than the paper* for their purposes, because it carries their research framing, their
 mistakes, and the connections they made. If the notes end up being a compressed restatement of
 the paper, the session failed even if the teaching went well: they already had the paper.
+
+### Resumption state and optional memory
+
+Persistent memory is optional. Use it only when the host provides it and the reader has explicitly
+opted in. If either condition is absent, do not read from or write study context to memory; the note
+and route table remain the complete resumption state.
+
+Every memory operation below is governed by this optional-memory policy. Availability alone is not
+consent, and memory must never contain unrelated paper content, credentials, or private workspace
+state.
 
 ## The scarce resource is attention, not information
 
@@ -59,16 +70,17 @@ Do this before teaching anything. It takes a few minutes and routinely saves hou
    | §3.1.3 物理化学模型 | 跳过 | 已跳过：计算成本注定用不上 | 与当前过滤器关联弱 |
 
    Tie every row to the stated filter. A row you can't justify against the filter is a row you
-   guessed at. Use AskUserQuestion if the tradeoffs are genuinely close; otherwise propose and
-   let them redirect. Keep skipped sections in the table and preserve the reason — absence is
-   ambiguous, while an explicit skip remains revisitable when the filter changes.
+   guessed at. If the tradeoffs are genuinely close, ask one concise clarification using the host's
+   supported interaction mechanism or ordinary chat; otherwise propose a route and let the reader
+   redirect. Keep skipped sections in the table and preserve the reason — absence is ambiguous,
+   while an explicit skip remains revisitable when the filter changes.
 
 4. **Set up the artifacts.** Create the note file from
    [references/note-template.md](references/note-template.md), including the agreed route table and
-   its `Progress` column, then write an initial memory recording the research filter and the map.
-   The table is what the *reader* sees when reopening the file cold; the memory is what *you* load
-   next session. Do not create a second progress block elsewhere in the note — duplicated state
-   eventually disagrees with itself.
+   its `Progress` column. When the optional-memory policy permits it, also record the research filter
+   and the map in host-provided memory. The reader-visible note must remain the complete resumption
+   state when memory is unavailable. Do not create a second progress block elsewhere in the note —
+   duplicated state eventually disagrees with itself.
 
 5. **Settle version control once.** If the notes live in a git repo, ask whether to commit after
    each completed section. Ask once, then honor the answer for the rest of the session — a reader
@@ -121,11 +133,11 @@ rather than smoothing over it.
 
 ### Teach it: lead the first read, don't conduct an oral exam
 
-If the `teach` skill is available, borrow its tutoring toolkit; otherwise use the self-contained
-loop below. In either case, do not turn a "one question and one scaffold" rhythm into a question
-quota. Questions are one teaching move, not the clock governing every turn. A reader who has not
-yet read the section has no source material from which to answer; repeatedly asking them to guess
-makes a joint first read feel like an oral exam.
+If the host provides an optional tutoring capability or skill (for example, `teach`), borrow its
+toolkit; otherwise use the self-contained loop below. In either case, do not turn a "one question and
+one scaffold" rhythm into a question quota. Questions are one teaching move, not the clock governing
+every turn. A reader who has not yet read the section has no source material from which to answer;
+repeatedly asking them to guess makes a joint first read feel like an oral exam.
 
 First diagnose **reading state for the current chunk**, not just topic knowledge. Annotations from an
 earlier section do not make the present one "already read". If the reader brings a concrete
@@ -229,8 +241,8 @@ judgment call that still holds or one made under a filter that has since changed
 
 Use the route table as the only in-note progress state. Do not maintain a separate completed/current/
 pending block: two representations of mutable state will eventually diverge, and the reader will
-not know which one to trust. Memory still carries the cross-session summary; commits still record
-completed events.
+not know which one to trust. When the optional-memory policy permits it, host-provided memory may
+carry a concise cross-session summary; commits may still record completed events.
 
 ---
 
@@ -272,7 +284,7 @@ So each fact lives in exactly one place:
 |---|---|---|
 | Commit message | What this commit added — an immutable event | Timestamped for free, stays true |
 | Route table `Progress` column | Current state: done / in progress / pending / skipped + why | Editable, next to the agreed reading priorities |
-| Memory | Cross-session context and the filter as it now stands | Loads automatically next session |
+| Optional host memory | Cross-session context and the filter as it now stands | Only when the optional-memory policy permits it; supplements the route table |
 
 Decisions *can* go in commit messages — as events, not as state:
 
@@ -316,8 +328,10 @@ When the map is exhausted or the reader stops:
 
 1. Make sure the notes are current through the last completed section, and that the route table's
    `Progress` column reflects reality, including anything deliberately left undone and why.
-2. Update the memory: where the read stands, the filter as it now stands (if it moved, record the
-   move and why), and what the natural next step is — often "search for X" rather than "read §5".
+2. When the optional-memory policy permits it, update host-provided memory with where the read
+   stands, the filter as it now stands (if it moved, record the move and why), and the natural next
+   step — often "search for X" rather than "read §5". Otherwise keep all of this state in the route
+   table and note.
 3. Tell them plainly what this paper gave them relative to their question, including where it fell
    short. If a follow-up search would serve them better than more of this paper, say what to search
    for.

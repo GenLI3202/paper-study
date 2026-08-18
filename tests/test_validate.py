@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 import configparser
-import hashlib
 import importlib.util
 import io
 import json
-import os
 import re
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
 import unittest
-import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -111,72 +107,6 @@ def _write_evals(root: Path, payload: dict[str, object]) -> None:
     (root / "evals" / "evals.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-
-
-def _release_installer(readme: Path) -> str:
-    blocks = re.findall(
-        r"```bash\n(.*?)```", readme.read_text(encoding="utf-8"), re.DOTALL
-    )
-    installers = [block for block in blocks if "trap cleanup EXIT" in block]
-    if len(installers) != 1:
-        raise AssertionError(f"Expected one release installer in {readme}")
-    return installers[0]
-
-
-def _write_release_assets(root: Path) -> tuple[Path, Path]:
-    archive = root / "paper-study.skill"
-    sources = {
-        "paper-study/SKILL.md": REPO_ROOT / "skill/paper-study/SKILL.md",
-        "paper-study/references/note-template.md": (
-            REPO_ROOT / "skill/paper-study/references/note-template.md"
-        ),
-    }
-    with zipfile.ZipFile(archive, "w") as package:
-        for name, source in sources.items():
-            info = zipfile.ZipInfo(name)
-            info.external_attr = (stat.S_IFREG | 0o644) << 16
-            package.writestr(info, source.read_bytes())
-    checksum = root / "SHA256SUMS"
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    checksum.write_text(f"{digest}  paper-study.skill\n", encoding="ascii")
-    return archive, checksum
-
-
-def _write_fake_release_commands(root: Path) -> Path:
-    fake_bin = root / "bin"
-    fake_bin.mkdir()
-    curl = fake_bin / "curl"
-    curl.write_text(
-        """#!/bin/sh
-output=''
-url=''
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --output) shift; output="$1" ;;
-    http*) url="$1" ;;
-  esac
-  shift
-done
-case "$url" in
-  *SHA256SUMS) cp "$TEST_CHECKSUM" "$output" ;;
-  *) cp "$TEST_ARCHIVE" "$output" ;;
-esac
-""",
-        encoding="utf-8",
-    )
-    move = fake_bin / "mv"
-    move.write_text(
-        """#!/bin/sh
-case "$1" in
-  */.paper-study-install.*/paper-study) exit 73 ;;
-esac
-exec "$REAL_MV" "$@"
-""",
-        encoding="utf-8",
-    )
-    curl.chmod(0o755)
-    move.chmod(0o755)
-    return fake_bin
 
 
 class ValidatorTestCase(unittest.TestCase):
@@ -562,63 +492,53 @@ class ValidatorTestCase(unittest.TestCase):
         self.assertEqual(configuration.get("run", "source").strip(), "scripts")
         self.assertEqual(configuration.getint("report", "fail_under"), 80)
 
-    def test_readme_release_installers_fail_closed_in_scoped_subshells(self) -> None:
-        for relative in ("README.md", "README.zh-CN.md"):
+    def test_release_sections_are_short_and_require_verification_before_extraction(self) -> None:
+        cases = (
+            (
+                "README.md",
+                "### Release archive",
+                r"before (?:extracting|installation), verify[^.\n]*sha-256",
+            ),
+            (
+                "README.zh-CN.md",
+                "### Release 压缩包",
+                r"解压前先核验[^。\n]*sha-256",
+            ),
+        )
+        for relative, heading, verification_pattern in cases:
             with self.subTest(relative=relative):
                 readme = (REPO_ROOT / relative).read_text(encoding="utf-8")
-                self.assertIn("(\n  set -euo pipefail", readme)
-                self.assertIn("trap cleanup EXIT", readme)
-                self.assertIn("exit_status=$?", readme)
-                self.assertNotIn("\n    status=$?", readme)
-                self.assertIn("hashlib.sha256(archive.read_bytes()).hexdigest()", readme)
-                self.assertIn("hmac.compare_digest", readme)
-                self.assertIn("paper-study\\.skill\\n", readme)
-                self.assertIn(
-                    "Unexpected or unsafe package contents; installation stopped.",
-                    readme,
+                start = readme.index(heading)
+                following = readme[start + len(heading) :]
+                next_section = re.search(r"^#{1,3}(?:\s|$)", following, re.MULTILINE)
+                section = following[: next_section.start()] if next_section else following
+                fences = re.findall(
+                    r"```(?P<language>[^\n]*)\n(?P<body>.*?)\n```",
+                    section,
+                    re.DOTALL,
                 )
-                self.assertIn("not stat.S_ISREG(info.external_attr >> 16)", readme)
-                self.assertIn("backup retained at %s", readme)
 
-    def test_readme_installer_rolls_back_in_available_shells(self) -> None:
-        shells = [shutil.which("bash")]
-        zsh = shutil.which("zsh")
-        if zsh is not None:
-            shells.append(zsh)
-        for relative in ("README.md", "README.zh-CN.md"):
-            installer = _release_installer(REPO_ROOT / relative)
-            for shell in (item for item in shells if item is not None):
-                with self.subTest(relative=relative, shell=shell), tempfile.TemporaryDirectory() as directory:
-                    root = Path(directory)
-                    archive, checksum = _write_release_assets(root)
-                    fake_bin = _write_fake_release_commands(root)
-                    skills = root / "skills"
-                    installed = skills / "paper-study"
-                    installed.mkdir(parents=True)
-                    (installed / "SKILL.md").write_text("previous version\n", encoding="utf-8")
-                    environment = {
-                        **os.environ,
-                        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
-                        "REAL_MV": shutil.which("mv") or "/bin/mv",
-                        "SKILLS_DIR": str(skills),
-                        "TEST_ARCHIVE": str(archive),
-                        "TEST_CHECKSUM": str(checksum),
-                        "TMPDIR": str(root),
-                    }
-
-                    result = subprocess.run(
-                        [shell, "-c", installer],
-                        capture_output=True,
-                        text=True,
-                        env=environment,
-                    )
-
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertEqual(
-                        (installed / "SKILL.md").read_text(encoding="utf-8"),
-                        "previous version\n",
-                    )
-                    self.assertEqual(list(skills.glob(".paper-study-*")), [])
+                self.assertLessEqual(len(section.splitlines()), 15)
+                self.assertNotIn("~~~", section)
+                self.assertEqual(
+                    fences,
+                    [
+                        (
+                            "text",
+                            "paper-study/SKILL.md\n"
+                            "paper-study/references/note-template.md",
+                        )
+                    ],
+                )
+                self.assertRegex(
+                    section,
+                    re.compile(verification_pattern, re.IGNORECASE),
+                )
+                self.assertIn("v0.1.1", section)
+                self.assertIn("paper-study.skill", section)
+                self.assertIn("SHA256SUMS", section)
+                self.assertIn("paper-study/SKILL.md", section)
+                self.assertIn("paper-study/references/note-template.md", section)
 
     def test_generated_workspace_is_consistently_ignored(self) -> None:
         ignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()

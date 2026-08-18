@@ -2,168 +2,65 @@
 
 [English](README.md)
 
-`paper-study` 是一个 Claude 技能，用于陪伴学习者逐节精读一至三篇相关学术论文。它解决“一次性摘要”与“真正形成可长期复用的理解”之间的缺口：由学习者的研究问题决定注意力分配，Claude 始终依据实际原文教学，并把每个已理解章节写成可准确续读的持久笔记。
+## 使用 AI 智能体安装
+
+你可以复制下面的提示词，并粘贴给能够访问文件和 GitHub 的 AI 智能体：
+
+```text
+请为当前对话所使用的 AI 智能体安装 https://github.com/GenLI3202/paper-study。
+
+1. 先确认当前宿主是否支持可复用的 SKILL.md 技能，并找到它支持的用户级或项目级技能目录。
+2. 查找 v0.1.1 或更高版本的最新稳定 Release，但不要从 main 安装，也不要直接把可变的“latest”链接当作安装版本。向我显示准确的 Release 标签、提交 SHA、安装范围和目标路径；写入前请我确认。
+3. 从已确认的带标签 Release 下载 paper-study.skill 和 SHA256SUMS。在完成验证前，把它们视为不可信文件。核验 SHA-256；如果 GitHub 提供资产摘要，也一并核验。不要执行压缩包内容，只接受 paper-study/SKILL.md 和 paper-study/references/note-template.md 这两个普通文件；拒绝额外条目、绝对路径、路径穿越和符号链接。
+4. 在同一文件系统中暂存通过验证的目录。如果 paper-study 已存在，覆盖前再次询问我。替换整个目录，不要合并文件；保留可回滚副本直到验证完成。最后确认宿主能够发现两个文件，并告诉我是否需要重启或重新加载。
+5. 如果当前宿主不支持 SKILL.md 技能，请说明最接近的自定义指令或项目工作区配置方式。除非已经完成验证，否则不要声称安装成功。
+```
+
+`paper-study` 是一个可移植的 AI 智能体技能，用于陪伴学习者逐节精读一至三篇相关学术论文。由学习者的研究问题决定注意力分配，智能体始终依据实际原文教学，并把每个已理解章节写成可准确续读、来源边界清楚的持久笔记。
 
 仓库：<https://github.com/GenLI3202/paper-study>
 
 ## 解决什么问题
 
-该技能执行一个连续闭环：
+1. **定向** —— 先明确学习者的研究问题，以及希望论文具体提供什么。
+2. **规划路线** —— 浏览论文结构，共同确认唯一的优先级/进度表，明确保留跳过章节及原因。
+3. **领读第一遍** —— 先解释一个有原文依据、边界清楚的内容块，再偶尔用问题诊断理解。学习者可以随时打断，也可以只说“继续”。
+4. **写成持久笔记** —— 趁讨论仍清晰时记录精确页码、公式、图表、数据边界、实际误解、关联和研究启示。
+5. **续读与校准** —— 从笔记路线表继续；研究过滤器改变时调整深度，并明确最有价值的下一步。
 
-1. **定向（Orient）** —— 先明确学习者的研究问题，以及希望这篇论文具体提供什么。
-2. **规划路线并映射进度** —— 浏览章节标题、图表说明、公式和引言中的路线说明；共同确认逐节阅读深度与优先级表。表格的 `Progress` 列是笔记内唯一的进度事实来源，明确保留跳过章节及其原因。
-3. **领读第一遍** —— 打开实际原文页面，先解释一个边界清楚的内容块，再检查理解。面对未读材料，默认先解释、少提问；学习者可以随时打断，也可以只说“继续”。如果学习者已经读过当前内容或带来了具体解释，则可用针对性问题诊断其推理。技能不会要求学习者猜测未读内容，也不会凭记忆陈述公式、结果或归属。
-4. **写成持久笔记** —— 趁讨论仍清晰时逐节写入笔记，记录精确页码/公式/图表定位、数据边界、学习者实际出现的误解、跨章节链接和研究启示。支线内容可以折叠，但不能遮蔽论文主线。
-5. **重新校准并收尾** —— 在章节边界重新检查阅读深度；当研究过滤器改变或论文不再有价值时及时调整。结束时同步路线表、更新环境所支持的跨会话记忆，并明确论文带来了什么、缺少什么以及最有价值的下一步。
+完整工作流见 [`skill/paper-study/SKILL.md`](skill/paper-study/SKILL.md)；笔记结构和引用约定见 [`references/note-template.md`](skill/paper-study/references/note-template.md)。
 
-完整行为由 [`skill/paper-study/SKILL.md`](skill/paper-study/SKILL.md) 定义；笔记结构和引用约定见 [`references/note-template.md`](skill/paper-study/references/note-template.md)。
+## 兼容性
 
-## 安装
+核心技能不绑定模型或厂商。当宿主能够加载 `SKILL.md` 风格的指令、读取论文 PDF/文件并写入笔记时，它可用于 Claude Code、基于 GPT 的编程智能体以及其他 AI 智能体宿主。持久记忆、Git、教学扩展和图示工具均为可选能力。
 
-Claude 需要发现嵌套的 `skill/paper-study` 目录；只安装仓库根目录并不够。
+如果聊天界面不提供文件系统或可复用指令能力，它就不能自行完成安装；此时应使用该宿主最接近的自定义指令或项目工作区功能。
 
-### 克隆并复制
+## 手动安装
 
-用户级安装：
+1. 选择 v0.1.1 或更高版本的固定 Release 标签并记录其提交 SHA；不要直接从 `main` 安装。
+2. 解压前核验包校验和、GitHub 提供的资产摘要（如有）以及严格的双文件清单。
+3. 把验证后的顶层 `paper-study/` 目录放入当前 AI 智能体宿主文档指定的技能目录，确保最终路径以 `paper-study/SKILL.md` 结尾。
+4. 如果目标已存在，覆盖前先获得同意并保留备份。不要合并复制到已有目录；应替换整个目录，并在删除备份前验证结果。
 
-```bash
-git clone https://github.com/GenLI3202/paper-study.git
-mkdir -p "$HOME/.claude/skills"
-cp -R paper-study/skill/paper-study "$HOME/.claude/skills/"
+不要把仓库根目录当作技能安装。
+
+### Claude Code 专用示例
+
+仅对 Claude Code，常见的用户级目标是 `~/.claude/skills/paper-study`。基于 GPT 的智能体和其他宿主必须使用自身文档指定的技能或指令位置，不要照搬这个路径。
+
+### Release 压缩包
+
+[最新 Release](https://github.com/GenLI3202/paper-study/releases/latest) 只用于查找 v0.1.1 或更高版本的稳定标签；v0.1.0 早于本次宿主中立化更新。解压前先核验 `SHA256SUMS` 中的 SHA-256 校验和，以及 GitHub 显示的资产摘要（如有）。`paper-study.skill` 兼容 ZIP，并且只能包含以下两个普通文件：
+
+```text
+paper-study/SKILL.md
+paper-study/references/note-template.md
 ```
 
-项目级安装（在目标项目中运行）：
-
-```bash
-mkdir -p .claude/skills
-cp -R /path/to/paper-study/skill/paper-study .claude/skills/
-```
-
-安装后请启动新的 Claude 会话，让环境重新发现该技能。
-
-### 安装 v0.1.0 `.skill` 压缩包
-
-[v0.1.0 Release](https://github.com/GenLI3202/paper-study/releases/tag/v0.1.0) 提供技能包及其校验和。以下用户级安装使用私有临时目录，校验 SHA-256 与严格的双文件归档清单，并通过同一文件系统内的重命名替换已有版本；失败时会回滚：
-
-```bash
-(
-  set -euo pipefail
-
-  SKILLS_DIR="${SKILLS_DIR:-$HOME/.claude/skills}" # 项目级示例：SKILLS_DIR=".claude/skills"
-  mkdir -p "$SKILLS_DIR"
-  SKILLS_DIR="$(cd "$SKILLS_DIR" && pwd -P)"
-  DOWNLOAD_DIR=""
-  STAGE_DIR=""
-  BACKUP=""
-
-  cleanup() {
-    exit_status=$?
-    set +e
-    [ -z "$DOWNLOAD_DIR" ] || rm -rf "$DOWNLOAD_DIR"
-    [ -z "$STAGE_DIR" ] || rm -rf "$STAGE_DIR"
-    if [ "$exit_status" -ne 0 ] && [ -n "$BACKUP" ] && \
-       { [ -e "$BACKUP" ] || [ -L "$BACKUP" ]; }; then
-      if [ ! -e "$SKILLS_DIR/paper-study" ] && \
-         [ ! -L "$SKILLS_DIR/paper-study" ] && \
-         mv "$BACKUP" "$SKILLS_DIR/paper-study"; then
-        BACKUP=""
-        printf 'Installation failed; the previous version was restored.\n' >&2
-      fi
-    fi
-    if [ "$exit_status" -eq 0 ] && [ -n "$BACKUP" ] && \
-       { [ -e "$BACKUP" ] || [ -L "$BACKUP" ]; }; then
-      if rm -rf "$BACKUP"; then
-        BACKUP=""
-      else
-        exit_status=1
-        printf 'Installation succeeded, but backup cleanup failed at %s\n' "$BACKUP" >&2
-      fi
-    elif [ -n "$BACKUP" ] && \
-         { [ -e "$BACKUP" ] || [ -L "$BACKUP" ]; }; then
-      printf 'Installation failed; backup retained at %s\n' "$BACKUP" >&2
-    fi
-    trap - EXIT
-    exit "$exit_status"
-  }
-  trap cleanup EXIT
-
-  DOWNLOAD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/paper-study-download.XXXXXX")"
-  STAGE_DIR="$(mktemp -d "$SKILLS_DIR/.paper-study-install.XXXXXX")"
-
-  curl --fail --location \
-    https://github.com/GenLI3202/paper-study/releases/download/v0.1.0/paper-study.skill \
-    --output "$DOWNLOAD_DIR/paper-study.skill"
-  curl --fail --location \
-    https://github.com/GenLI3202/paper-study/releases/download/v0.1.0/SHA256SUMS \
-    --output "$DOWNLOAD_DIR/SHA256SUMS"
-  python3 - \
-    "$DOWNLOAD_DIR/paper-study.skill" \
-    "$DOWNLOAD_DIR/SHA256SUMS" \
-    "$STAGE_DIR" <<'PY'
-import hashlib
-import hmac
-import re
-import stat
-import sys
-import zipfile
-from pathlib import Path
-
-archive = Path(sys.argv[1])
-checksum_file = Path(sys.argv[2])
-stage = Path(sys.argv[3])
-checksum_text = checksum_file.read_text(encoding="ascii")
-checksum_match = re.fullmatch(r"([0-9a-f]{64})  paper-study\.skill\n", checksum_text)
-archive_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-if checksum_match is None or not hmac.compare_digest(
-    checksum_match.group(1), archive_digest
-):
-    raise SystemExit("Checksum verification failed; installation stopped.")
-expected = [
-    "paper-study/SKILL.md",
-    "paper-study/references/note-template.md",
-]
-with zipfile.ZipFile(archive) as package:
-    infos = package.infolist()
-    names = sorted(info.filename for info in infos)
-    unsafe = [
-        info.filename
-        for info in infos
-        if Path(info.filename).is_absolute()
-        or ".." in Path(info.filename).parts
-        or not stat.S_ISREG(info.external_attr >> 16)
-    ]
-    if names != expected or unsafe:
-        raise SystemExit("Unexpected or unsafe package contents; installation stopped.")
-    for info in infos:
-        target = stage / info.filename
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(package.read(info))
-PY
-
-  if [ -e "$SKILLS_DIR/paper-study" ] || [ -L "$SKILLS_DIR/paper-study" ]; then
-    BACKUP="$(mktemp -d "$SKILLS_DIR/.paper-study-backup.XXXXXX")"
-    rmdir "$BACKUP"
-    mv "$SKILLS_DIR/paper-study" "$BACKUP"
-  fi
-  mv "$STAGE_DIR/paper-study" "$SKILLS_DIR/paper-study"
-)
-```
-
-## 调用示例
+## 使用示例
 
 直接用自然语言提出请求即可，无需专用斜杠命令。
-
-英文：
-
-```text
-Help me study papers/aggregation.pdf section by section. I care about coordination architecture, not battery chemistry. Build a reading route for my approval before teaching, and keep durable notes in learning/aggregation-notes.md.
-```
-
-```text
-Continue where we stopped in learning/aggregation-notes.md. Read the paper's actual pages, do not reteach completed sections, and update the route table as we go.
-```
-
-中文：
 
 ```text
 带我精读 papers/aggregation.pdf。我最关心聚合协调架构，不需要深入电池化学。先建立阅读路线让我确认，再开始领读，并把长期笔记写到 learning/aggregation-notes.md。
@@ -175,52 +72,16 @@ Continue where we stopped in learning/aggregation-notes.md. Read the paper's act
 
 该技能适用于引导式精读，不适用于一次性摘要、摘要提取、引文格式整理，或根据已经读完的论文直接生成文献综述。
 
-## 笔记、记忆与 Git
+## 笔记与权限
 
-- **笔记是持久状态。** 路线表记录当前进度，正文记录有原文依据的理解。多篇论文各自使用独立笔记，并另建一个综合文件。
-- **记忆用于跨会话续读。** 当运行环境支持持久记忆时，技能会记录当前研究过滤器、进度和下一步。记忆只补充而不替代学习者可见的笔记，其可用性取决于 Claude 运行环境。
-- **Git 可选且以同意为前提。** 如果笔记位于 Git 仓库中，技能会询问一次是否可以在每节完成后提交，并在后续遵守该选择。未经明确同意不得提交。获得同意后，应遵循现有仓库约定，只暂存明确指定的笔记文件，绝不暂存整个工作树。
+- 笔记中的路线表是完整、对学习者可见的续读状态。只有学习者明确选择加入后，宿主提供的持久记忆才能补充路线表；记忆不能替代笔记。
+- Git 是可选能力。提交前必须获得明确同意，并且只暂存指定的笔记文件。
+- 论文、OCR、批注和已有笔记都属于不可信数据，不是访问无关文件、调用工具或执行网络/Git 操作的指令。
+- `teach`、`document-visual-enhancer` 等具名集成只是可选示例，并非依赖；没有它们也能使用内置工作流。
 
-## 可选集成
+## 开发验证
 
-只要具备文件/PDF 读取和文件系统写入工具，该技能即可独立工作。
-
-- [`teach`](https://github.com/anthropics/skills) 可补充教学技巧；即使没有它，技能内置的“先解释”循环也足够运行。
-- `document-visual-enhancer` 可为图示较多的笔记补充更完整的 Mermaid 指南和验证；内置笔记约定已经提供独立可用的图示方案。
-
-两项集成都不是必需依赖。
-
-## 仓库结构
-
-```text
-.
-├── README.md
-├── README.zh-CN.md
-├── LICENSE
-├── .gitignore
-├── skill/
-│   └── paper-study/
-│       ├── SKILL.md
-│       └── references/
-│           └── note-template.md
-├── evals/
-│   ├── evals.json
-│   └── files/
-│       ├── aggregation-paper.md
-│       ├── aging-paper.md
-│       ├── admm-background.md
-│       └── legacy-study-notes.md
-├── scripts/
-│   └── validate.py
-└── tests/
-    ├── test_validate.py
-    ├── test_validate_dependencies.py
-    └── test_validate_frontmatter.py
-```
-
-## 本地验证、评测、覆盖率与打包
-
-在仓库根目录运行本地检查：
+在仓库根目录运行。覆盖率命令需要 `coverage==7.15.4`（`python3 -m pip install coverage==7.15.4`）。
 
 ```bash
 python3 scripts/validate.py
@@ -229,35 +90,13 @@ python3 -m coverage run --branch -m unittest discover -s tests -v
 python3 -m coverage report --fail-under=80
 ```
 
-如果当前环境尚未提供 `coverage` 包，请先安装。仓库验证器会检查技能元数据与打包内容白名单、本地 Markdown 链接、评测结构与输入路径、隐私排除项，以及独立运行/可选依赖措辞。测试套件覆盖成功和失败路径；分支感知覆盖率必须保持至少 80%。
+[`evals/files/`](evals/files/) 下的文件是合成回归输入，不是已发表论文或基准性能证据。CI 只打包 `SKILL.md` 和 `references/note-template.md`；发布 Release 仍是独立的维护者操作。
 
-[`evals/evals.json`](evals/evals.json) 中的六个用例覆盖：教学前定向、“先解释”的多轮领读、旧笔记进度迁移、多论文综合、标明来源的可折叠支线，以及针对已读章节的聚焦提问。行为回归测试应通过官方 `skill-creator` 评测流程运行。`evals/files/` 下的文件是有意构造的合成示例/回归输入；它们不是已发表论文、公开基准数据集，也不能作为基准性能证据。通过本地测试或覆盖率门槛不等于发布了行为基准分数。
+## 隐私与局限
 
-官方结构验证和打包请在 `skill-creator` 目录中使用其脚本（Python 环境需已安装 PyYAML）：
+论文和笔记按照所选 AI 智能体宿主及服务提供商的政策处理。机密材料只能放在获准的位置；必要时请为 PDF 和笔记添加项目专用 Git 排除规则。
 
-```bash
-REPO_ROOT="/absolute/path/to/paper-study"
-python -m scripts.quick_validate "$REPO_ROOT/skill/paper-study"
-python -m scripts.package_skill "$REPO_ROOT/skill/paper-study" "$REPO_ROOT/dist"
-unzip -l "$REPO_ROOT/dist/paper-study.skill"
-```
-
-`package_skill` 会先验证，再创建 `dist/paper-study.skill`；该文件兼容 ZIP 格式，内部包含顶层 `paper-study/` 技能目录。
-
-每次成功推送到 `main` 后，CI 会上传一个保留 30 天的暂存产物，名称为 `paper-study-<完整提交 SHA>`，其中包含 `paper-study.skill` 和 `SHA256SUMS`。该工作流产物**不是** GitHub Release，也不能替代文档中的 Release 下载地址。发布 `v0.1.0` 时，维护者必须选择 head SHA 与 `v0.1.0` 标签目标提交完全一致且成功的 `main` 工作流，下载该提交绑定产物，验证 `SHA256SUMS`，再把两个文件原样附加到 GitHub Release。验证工作流不会自动创建标签或发布 Release 资产。
-
-## 隐私
-
-该技能本身不包含独立上传器，但交给 Claude 读取的论文和笔记会按照当前 Claude 运行环境的政策处理。请仅在获准的位置存放机密材料。
-
-[`.gitignore`](.gitignore) 排除了生成的评测工作区、`dist/`、`*.skill`、覆盖率输出、Python 缓存和 `.DS_Store`，但**不会**排除任意 PDF 或学习笔记路径。在运行评测或 Git 命令前，请增加项目专用排除规则，或把敏感来源和笔记放在本仓库之外。
-
-## 局限
-
-- 最适合一至三篇相关论文；范围更大的文献综述需要其他工作流。
-- 需要可读取的原文页面和文件系统写入权限。OCR 或 PDF 提取错误仍可能破坏公式和定位信息，引用前应回到原文核验。
-- 它负责教学和记录论文，不负责复现实验，也不独立验证科学结论。
-- 持久记忆、Git 和可选集成都取决于宿主环境；Git 提交始终需要明确同意。
+该技能需要可读取的原文页面和文件系统写入权限。OCR 或提取错误仍可能破坏公式和定位信息，因此引用前应回到原文核验。它负责教学和记录论文，不负责复现实验，也不独立验证科学结论。
 
 ## 许可证
 

@@ -26,7 +26,7 @@ survive being trusted by someone who no longer remembers writing them.
 
 > **文献原名**: <full title> (<authors>, <year>, <venue>)
 > **定位**: <what's in scope and — just as important — what's deliberately out of scope>
-> **相关**: [[synthesis]] · [[其他文献笔记]]
+> **相关**: （仅在对应文件存在时添加标准相对 Markdown 链接；单篇精读可省略本行）
 
 ## 阅读路线与进度
 
@@ -97,17 +97,20 @@ transcription you haven't verified character by character.
 
 ## Math rendering
 
-Notes and chat have different renderers, and mixing them up is a recurring annoyance:
+Notes and chat may use different renderers, so detect what the current host and target note app
+actually support:
 
-- **In the note file**: LaTeX (`$...$`, `$$...$$`) renders fine in most Markdown previewers. Use it.
-- **In chat**: a terminal shows LaTeX as raw source. Use a fenced code block with plain symbols:
+- **In the note file**: use LaTeX (`$...$`, `$$...$$`) when the selected Markdown previewer renders
+  it. Otherwise use a fenced block with plain symbols and retain the paper's equation number.
+- **In chat**: use rendered LaTeX when the host supports it reliably. Otherwise use a fenced code
+  block with plain symbols:
 
   ```
   α_T = γ1 · exp[ -(γ2/R) · (1/T - 1/T_ref) ]      (Eq.5, Arrhenius 温度加速因子)
   ```
 
-The same equation can be written both ways in the same turn — plain in the message, LaTeX in the
-file.
+When the two renderers differ, the same equation can appear in both forms in one turn — the form
+that renders in the message and the form that renders in the file.
 
 ## Diagrams
 
@@ -115,9 +118,11 @@ A diagram earns its place when the content has structure a sentence can't carry:
 process with branches, an input→mechanism→output chain. It does not earn its place for a list of
 independent facts.
 
-Prefer Mermaid over ASCII box-drawing — it renders, it's styleable, and it survives editing.
-Convert existing ASCII diagrams when you encounter them, checking that every box and arrow in the
-original maps onto a node and edge in the new one.
+Prefer Mermaid when the target host or note app renders it. Otherwise use a labelled plain-text
+outline, numbered flow, or another format the reader can inspect; never leave an unrenderable diagram
+as the only representation of essential structure. Convert existing ASCII diagrams to Mermaid only
+when rendering is available, checking that every box and arrow in the original maps onto a node and
+edge in the new one.
 
 Keep one palette across the whole file, so a color means the same thing in every diagram. Pick it
 once and reuse via `classDef`:
@@ -130,10 +135,11 @@ classDef condition fill:#f5f0e6,stroke:#8a7550,stroke-width:1.5px;            %%
 classDef riskNode  fill:#fde8e8,stroke:#c0392b,stroke-width:1.5px,color:#7f1d1d; %% 风险/不可逆后果
 ```
 
-Quote any node label containing parentheses, colons, or brackets, and use `<br/>` for line breaks.
-When the optional `document-visual-enhancer` skill is available, use its fuller Mermaid guidance
-and validator for diagram-heavy passes. Otherwise, follow the conventions above and inspect the
-rendered diagram directly before keeping it.
+Quote any Mermaid node label containing parentheses, colons, or brackets, and use `<br/>` for line
+breaks. If the host provides an optional diagram-enhancement capability (for example,
+`document-visual-enhancer`), use it for diagram-heavy passes. Otherwise follow the conventions above
+and inspect the rendered diagram when rendering or preview tools are available; when they are not,
+keep a text equivalent and state that visual rendering was not verified.
 
 ## Foldable annotation branches
 
@@ -197,7 +203,7 @@ For multi-paper reads, alongside the per-paper notes:
 ```markdown
 # <主题> 跨文献综合
 
-> **覆盖文献**: [[paper-A-notes]] · [[paper-B-notes]] · [[paper-C-notes]]
+> **覆盖文献**: [Paper A](paper-A-notes.md) · [Paper B](paper-B-notes.md) · [Paper C](paper-C-notes.md)
 > **研究焦点**: <the filter these papers are being read against>
 
 ## 术语对照
